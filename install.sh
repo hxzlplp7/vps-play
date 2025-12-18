@@ -117,21 +117,19 @@ export PATH="$HOME/bin:$PATH"
 
 echo -e ""
 echo -e "${Green}==================== 安装完成 ====================${Reset}"
-echo -e "${Cyan}快捷命令已创建！${Reset}"
 echo -e ""
-echo -e "使用方法:"
-echo -e "  ${Green}vps-play${Reset}          - 启动主菜单"
-echo -e "  ${Green}cd ~/$PROJECT_NAME${Reset} - 进入安装目录"
-echo -e "  ${Green}./start.sh${Reset}        - 直接运行主脚本"
+echo -e "后续使用方法:"
+echo -e "  ${Green}bash ~/vps-play/start.sh${Reset}  - 启动主菜单"
+echo -e ""
+echo -e "或者重新登录后使用快捷命令:"
+echo -e "  ${Green}vps-play${Reset}"
 echo -e ""
 echo -e "${Green}=================================================${Reset}"
 echo -e ""
 
-# 询问是否立即运行
-read -p "是否立即启动 VPS-play? [Y/n]: " run_now
-run_now=${run_now:-Y}
+# 直接运行
+echo -e "${Cyan}正在启动 VPS-play...${Reset}"
+echo -e ""
+cd "$INSTALL_DIR"
+exec ./start.sh
 
-if [[ $run_now =~ ^[Yy]$ ]]; then
-    cd "$INSTALL_DIR"
-    ./start.sh
-fi
