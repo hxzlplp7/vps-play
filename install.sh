@@ -11,7 +11,7 @@ Reset="\033[0m"
 
 PROJECT_NAME="VPS-play"
 INSTALL_DIR="$HOME/$PROJECT_NAME"
-REPO_URL="https://github.com/YOUR_REPO/VPS-play.git"  # 请替换为实际仓库地址
+REPO_URL="https://github.com/hxzlplp7/vps-play.git"
 
 echo -e "${Cyan}"
 cat << "EOF"

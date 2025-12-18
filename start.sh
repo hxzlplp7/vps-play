@@ -226,7 +226,7 @@ show_main_menu() {
                 ;;
             16)
                 echo -e "${Info} 更新脚本..."
-                curl -sL https://raw.githubusercontent.com/YOUR_REPO/VPS-play/main/start.sh -o "$SCRIPT_DIR/start.sh.new"
+                curl -sL https://raw.githubusercontent.com/hxzlplp7/vps-play/main/start.sh -o "$SCRIPT_DIR/start.sh.new"
                 if [ -f "$SCRIPT_DIR/start.sh.new" ]; then
                     mv "$SCRIPT_DIR/start.sh.new" "$SCRIPT_DIR/start.sh"
                     chmod +x "$SCRIPT_DIR/start.sh"

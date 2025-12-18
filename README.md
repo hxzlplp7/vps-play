@@ -45,10 +45,10 @@
 
 ```bash
 # 下载并运行
-curl -sL https://raw.githubusercontent.com/YOUR_REPO/VPS-play/main/install.sh | bash
+curl -sL https://raw.githubusercontent.com/hxzlplp7/vps-play/main/install.sh | bash
 
 # 或者手动安装
-git clone https://github.com/YOUR_REPO/VPS-play.git
+git clone https://github.com/hxzlplp7/vps-play.git
 cd VPS-play
 chmod +x start.sh
 ./start.sh
@@ -194,7 +194,7 @@ MIT License
 
 ## 📞 联系方式
 
-- GitHub Issues: [提交问题](https://github.com/YOUR_REPO/VPS-play/issues)
+- GitHub Issues: [提交问题](https://github.com/hxzlplp7/vps-play/issues)
 - Telegram: [加入讨论](https://t.me/YOUR_GROUP)
 
 ---

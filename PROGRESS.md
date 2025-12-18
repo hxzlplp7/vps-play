@@ -215,7 +215,7 @@
 
 ```bash
 # 安装
-curl -sL https://raw.githubusercontent.com/YOUR_REPO/VPS-play/main/install.sh | bash
+curl -sL https://raw.githubusercontent.com/hxzlplp7/vps-play/main/install.sh | bash
 
 # 运行主程序
 vps-play
