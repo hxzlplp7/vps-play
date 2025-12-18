@@ -183,7 +183,12 @@ show_main_menu() {
         
         case "$choice" in
             1)
-                echo -e "${Warning} sing-box 模块开发中..."
+                # sing-box 模块
+                if [ -f "$SCRIPT_DIR/modules/singbox/manager.sh" ]; then
+                    bash "$SCRIPT_DIR/modules/singbox/manager.sh"
+                else
+                    echo -e "${Error} sing-box 模块未找到"
+                fi
                 ;;
             2)
                 # GOST 中转模块
@@ -194,16 +199,36 @@ show_main_menu() {
                 fi
                 ;;
             3)
-                echo -e "${Warning} X-UI 模块开发中..."
+                # X-UI 模块
+                if [ -f "$SCRIPT_DIR/modules/xui/manager.sh" ]; then
+                    bash "$SCRIPT_DIR/modules/xui/manager.sh"
+                else
+                    echo -e "${Error} X-UI 模块未找到"
+                fi
                 ;;
             4)
-                echo -e "${Warning} FRPC 模块开发中..."
+                # FRPC 模块
+                if [ -f "$SCRIPT_DIR/modules/frpc/manager.sh" ]; then
+                    bash "$SCRIPT_DIR/modules/frpc/manager.sh"
+                else
+                    echo -e "${Error} FRPC 模块未找到"
+                fi
                 ;;
             5)
-                echo -e "${Warning} Cloudflared 模块开发中..."
+                # Cloudflared 模块
+                if [ -f "$SCRIPT_DIR/modules/cloudflared/manager.sh" ]; then
+                    bash "$SCRIPT_DIR/modules/cloudflared/manager.sh"
+                else
+                    echo -e "${Error} Cloudflared 模块未找到"
+                fi
                 ;;
             6)
-                echo -e "${Warning} 哪吒监控模块开发中..."
+                # 哪吒监控模块
+                if [ -f "$SCRIPT_DIR/modules/nezha/manager.sh" ]; then
+                    bash "$SCRIPT_DIR/modules/nezha/manager.sh"
+                else
+                    echo -e "${Error} 哪吒监控模块未找到"
+                fi
                 ;;
             11)
                 port_manage_menu
@@ -222,7 +247,12 @@ show_main_menu() {
                 show_env_info
                 ;;
             15)
-                echo -e "${Warning} 保活设置开发中..."
+                # 保活系统
+                if [ -f "$SCRIPT_DIR/keepalive/manager.sh" ]; then
+                    bash "$SCRIPT_DIR/keepalive/manager.sh"
+                else
+                    echo -e "${Error} 保活模块未找到"
+                fi
                 ;;
             16)
                 echo -e "${Info} 更新脚本..."
