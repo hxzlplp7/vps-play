@@ -44,14 +44,14 @@
 ### 一键安装
 
 ```bash
-# 下载并运行
+# 一键安装 (推荐)
 curl -sL https://raw.githubusercontent.com/hxzlplp7/vps-play/main/install.sh | bash
 
-# 或者手动安装
-git clone https://github.com/hxzlplp7/vps-play.git
-cd VPS-play
-chmod +x start.sh
-./start.sh
+# 或使用 wget
+wget -qO- https://raw.githubusercontent.com/hxzlplp7/vps-play/main/install.sh | bash
+
+# 安装完成后运行
+vps-play
 ```
 
 ### 基本使用
