@@ -453,6 +453,40 @@ check_streaming() {
 show_warp_menu() {
     check_system
     
+    # Serv00/HostUno 环境检测
+    local is_serv00=false
+    if [ -f /etc/os-release ]; then
+        grep -qi "serv00\|hostuno" /etc/os-release 2>/dev/null && is_serv00=true
+    fi
+    # 通过主机名检测
+    hostname 2>/dev/null | grep -qiE "serv00|hostuno" && is_serv00=true
+    # 通过 devil 命令检测
+    command -v devil &>/dev/null && is_serv00=true
+    
+    if [ "$is_serv00" = true ]; then
+        clear
+        echo -e "${Cyan}"
+        cat << "EOF"
+    ╦ ╦╔═╗╦═╗╔═╗
+    ║║║╠═╣╠╦╝╠═╝
+    ╚╩╝╩ ╩╩╚═╩  
+EOF
+        echo -e "${Reset}"
+        echo -e "${Red}========================================${Reset}"
+        echo -e "${Error} Serv00/HostUno 环境不支持 WARP"
+        echo -e "${Red}========================================${Reset}"
+        echo -e ""
+        echo -e " 原因: WARP 需要 WireGuard 内核模块和 root 权限"
+        echo -e "       Serv00 是共享主机，无法满足这些要求"
+        echo -e ""
+        echo -e "${Tip} 替代方案:"
+        echo -e "  ${Green}1.${Reset} 使用 ${Cyan}Cloudflared 隧道${Reset} (主菜单选项 6)"
+        echo -e "  ${Green}2.${Reset} 使用外部 WARP Socks5 代理服务"
+        echo -e ""
+        read -p "按回车返回主菜单..."
+        return 0
+    fi
+    
     while true; do
         clear
         echo -e "${Cyan}"
