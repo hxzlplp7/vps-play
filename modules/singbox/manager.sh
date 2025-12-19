@@ -580,10 +580,20 @@ EOF
 }
 
 stop_singbox() {
+    if [ ! -f "$SINGBOX_BIN" ]; then
+        echo -e "${Warning} sing-box 未安装"
+        return 1
+    fi
+    
+    if ! pgrep -f "sing-box" &>/dev/null; then
+        echo -e "${Warning} sing-box 未在运行"
+        return 0
+    fi
+    
     echo -e "${Info} 停止 sing-box..."
     
     if [ "$HAS_SYSTEMD" = true ] && [ "$HAS_ROOT" = true ]; then
-        systemctl stop sing-box
+        systemctl stop sing-box 2>/dev/null
     else
         stop_process "singbox"
     fi
@@ -599,12 +609,23 @@ restart_singbox() {
 }
 
 status_singbox() {
+    if [ ! -f "$SINGBOX_BIN" ]; then
+        echo -e "${Warning} sing-box 未安装"
+        echo -e "${Tip} 请先选择 [1-3] 安装节点"
+        return 1
+    fi
+    
     echo -e "${Info} sing-box 状态:"
     
-    if [ "$HAS_SYSTEMD" = true ] && [ "$HAS_ROOT" = true ]; then
-        systemctl status sing-box --no-pager
+    if pgrep -f "sing-box" &>/dev/null; then
+        echo -e "  运行状态: ${Green}运行中${Reset}"
+        echo -e "  进程 PID: $(pgrep -f 'sing-box' | head -1)"
     else
-        status_process "singbox"
+        echo -e "  运行状态: ${Red}已停止${Reset}"
+    fi
+    
+    if [ -f "$SINGBOX_CONF" ]; then
+        echo -e "  配置文件: ${Cyan}$SINGBOX_CONF${Reset}"
     fi
 }
 
