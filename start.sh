@@ -6,14 +6,31 @@
 version="1.0.0"
 
 # ==================== 初始化 ====================
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# 获取脚本目录 - 兼容多种运行方式
+if [ -n "${BASH_SOURCE[0]}" ]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+elif [ -n "$0" ]; then
+    SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+else
+    SCRIPT_DIR="$HOME/vps-play"
+fi
+
+# 如果目录不存在，尝试常见路径
+if [ ! -d "$SCRIPT_DIR/modules" ]; then
+    if [ -d "$HOME/vps-play/modules" ]; then
+        SCRIPT_DIR="$HOME/vps-play"
+    elif [ -d "/root/vps-play/modules" ]; then
+        SCRIPT_DIR="/root/vps-play"
+    fi
+fi
+
 WORK_DIR="$HOME/.vps-play"
 
-# 加载工具库
-source "$SCRIPT_DIR/utils/env_detect.sh"
-source "$SCRIPT_DIR/utils/port_manager.sh"
-source "$SCRIPT_DIR/utils/process_manager.sh"
-source "$SCRIPT_DIR/utils/network.sh"
+# 加载工具库（静默失败）
+[ -f "$SCRIPT_DIR/utils/env_detect.sh" ] && source "$SCRIPT_DIR/utils/env_detect.sh"
+[ -f "$SCRIPT_DIR/utils/port_manager.sh" ] && source "$SCRIPT_DIR/utils/port_manager.sh"
+[ -f "$SCRIPT_DIR/utils/process_manager.sh" ] && source "$SCRIPT_DIR/utils/process_manager.sh"
+[ -f "$SCRIPT_DIR/utils/network.sh" ] && source "$SCRIPT_DIR/utils/network.sh"
 
 # ==================== 颜色定义 ====================
 Green="\033[32m"

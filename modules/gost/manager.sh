@@ -3,20 +3,33 @@
 # 整合 gost-serv00.sh，适配多环境
 
 # 获取脚本目录
-MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VPSPLAY_DIR="$(cd "$MODULE_DIR/../.." && pwd)"
+MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+[ -z "$MODULE_DIR" ] && MODULE_DIR="$HOME/vps-play/modules/gost"
+VPSPLAY_DIR="$(cd "$MODULE_DIR/../.." 2>/dev/null && pwd)"
+[ -z "$VPSPLAY_DIR" ] && VPSPLAY_DIR="$HOME/vps-play"
 
 # 加载 VPS-play 工具库
-source "$VPSPLAY_DIR/utils/env_detect.sh"
-source "$VPSPLAY_DIR/utils/port_manager.sh"
-source "$VPSPLAY_DIR/utils/process_manager.sh"
+[ -f "$VPSPLAY_DIR/utils/env_detect.sh" ] && source "$VPSPLAY_DIR/utils/env_detect.sh"
+[ -f "$VPSPLAY_DIR/utils/port_manager.sh" ] && source "$VPSPLAY_DIR/utils/port_manager.sh"
+[ -f "$VPSPLAY_DIR/utils/process_manager.sh" ] && source "$VPSPLAY_DIR/utils/process_manager.sh"
+
+# ==================== 颜色定义 ====================
+Green="\033[32m"
+Red="\033[31m"
+Yellow="\033[33m"
+Cyan="\033[36m"
+Reset="\033[0m"
+Info="${Green}[信息]${Reset}"
+Error="${Red}[错误]${Reset}"
+Warning="${Yellow}[警告]${Reset}"
+Tip="${Cyan}[提示]${Reset}"
 
 # ==================== 环境适配 ====================
 # 根据环境设置 GOST 配置
 setup_gost_environment() {
     # 检测环境
     if [ -z "$ENV_TYPE" ]; then
-        detect_environment
+        detect_environment 2>/dev/null || ENV_TYPE="vps"
     fi
     
     # 根据环境设置工作目录
@@ -29,7 +42,7 @@ setup_gost_environment() {
     echo -e "${Info} GOST 环境: ${Cyan}${ENV_TYPE}${Reset}"
     
     # 设置端口管理方式
-    detect_port_method
+    detect_port_method 2>/dev/null || PORT_METHOD="direct"
 }
 
 # ==================== 端口集成 ====================

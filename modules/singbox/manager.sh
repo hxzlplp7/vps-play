@@ -3,13 +3,26 @@
 # 多协议代理节点管理
 # 参考: Misaka-blog/hysteria-install, Misaka-blog/tuic-script
 
-MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VPSPLAY_DIR="$(cd "$MODULE_DIR/../.." && pwd)"
+MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+[ -z "$MODULE_DIR" ] && MODULE_DIR="$HOME/vps-play/modules/singbox"
+VPSPLAY_DIR="$(cd "$MODULE_DIR/../.." 2>/dev/null && pwd)"
+[ -z "$VPSPLAY_DIR" ] && VPSPLAY_DIR="$HOME/vps-play"
 
-source "$VPSPLAY_DIR/utils/env_detect.sh" 2>/dev/null
-source "$VPSPLAY_DIR/utils/port_manager.sh" 2>/dev/null
-source "$VPSPLAY_DIR/utils/process_manager.sh" 2>/dev/null
-source "$VPSPLAY_DIR/utils/network.sh" 2>/dev/null
+[ -f "$VPSPLAY_DIR/utils/env_detect.sh" ] && source "$VPSPLAY_DIR/utils/env_detect.sh"
+[ -f "$VPSPLAY_DIR/utils/port_manager.sh" ] && source "$VPSPLAY_DIR/utils/port_manager.sh"
+[ -f "$VPSPLAY_DIR/utils/process_manager.sh" ] && source "$VPSPLAY_DIR/utils/process_manager.sh"
+[ -f "$VPSPLAY_DIR/utils/network.sh" ] && source "$VPSPLAY_DIR/utils/network.sh"
+
+# ==================== 颜色定义 ====================
+Green="\033[32m"
+Red="\033[31m"
+Yellow="\033[33m"
+Cyan="\033[36m"
+Reset="\033[0m"
+Info="${Green}[信息]${Reset}"
+Error="${Red}[错误]${Reset}"
+Warning="${Yellow}[警告]${Reset}"
+Tip="${Cyan}[提示]${Reset}"
 
 # ==================== 配置 ====================
 SINGBOX_DIR="$HOME/.vps-play/singbox"
@@ -17,6 +30,7 @@ SINGBOX_BIN="$SINGBOX_DIR/sing-box"
 SINGBOX_CONF="$SINGBOX_DIR/config.json"
 SINGBOX_LOG="$SINGBOX_DIR/sing-box.log"
 CERT_DIR="$SINGBOX_DIR/cert"
+
 
 # sing-box 版本
 SINGBOX_VERSION="1.10.0"

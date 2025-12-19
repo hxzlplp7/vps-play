@@ -3,10 +3,23 @@
 # 一键安装 Docker 和 Docker Compose
 # 支持: Linux (Debian/Ubuntu/CentOS/Alpine) 和 FreeBSD
 
-MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VPSPLAY_DIR="$(cd "$MODULE_DIR/../.." && pwd)"
+MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+[ -z "$MODULE_DIR" ] && MODULE_DIR="$HOME/vps-play/modules/docker"
+VPSPLAY_DIR="$(cd "$MODULE_DIR/../.." 2>/dev/null && pwd)"
+[ -z "$VPSPLAY_DIR" ] && VPSPLAY_DIR="$HOME/vps-play"
 
-source "$VPSPLAY_DIR/utils/env_detect.sh" 2>/dev/null
+[ -f "$VPSPLAY_DIR/utils/env_detect.sh" ] && source "$VPSPLAY_DIR/utils/env_detect.sh"
+
+# ==================== 颜色定义 ====================
+Green="\033[32m"
+Red="\033[31m"
+Yellow="\033[33m"
+Cyan="\033[36m"
+Reset="\033[0m"
+Info="${Green}[信息]${Reset}"
+Error="${Red}[错误]${Reset}"
+Warning="${Yellow}[警告]${Reset}"
+Tip="${Cyan}[提示]${Reset}"
 
 # ==================== 配置 ====================
 DOCKER_COMPOSE_VERSION="2.24.0"
