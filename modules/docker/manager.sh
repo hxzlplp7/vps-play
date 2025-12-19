@@ -53,6 +53,16 @@ check_docker_compose() {
 
 # ==================== Linux 安装 ====================
 install_docker_linux() {
+    # 检查磁盘空间 (至少需要 500MB，推荐 1GB)
+    local available_kb=$(df -k /var | awk 'NR==2 {print $4}')
+    if [ "$available_kb" -lt 512000 ]; then
+        echo -e "${Error} 磁盘空间严重不足!"
+        echo -e "  当前可用: $(($available_kb/1024)) MB"
+        echo -e "  需要至少: 500 MB (推荐 1GB)"
+        echo -e "${Tip} 请尝试清理空间: sudo apt-get clean && sudo apt-get autoremove"
+        return 1
+    fi
+
     echo -e "${Info} 开始安装 Docker (Linux)..."
     
     # 检测发行版
@@ -63,36 +73,68 @@ install_docker_linux() {
         fi
     fi
     
+    # 修正 raspbian
+    if [ "$OS_DISTRO" = "raspbian" ]; then
+        OS_DISTRO="debian"
+    fi
+
+    local install_status=0
+    
     case "$OS_DISTRO" in
-        debian|ubuntu)
+        debian|ubuntu|kali)
             install_docker_debian
+            install_status=$?
             ;;
         centos|rhel|rocky|alma|fedora)
             install_docker_centos
+            install_status=$?
             ;;
         alpine)
             install_docker_alpine
+            install_status=$?
             ;;
         *)
             echo -e "${Warning} 未知发行版，尝试使用官方脚本安装"
             install_docker_script
+            install_status=$?
             ;;
     esac
+    
+    if [ $install_status -eq 0 ]; then
+        echo -e "${Info} Docker 安装完成"
+        systemctl start docker 2>/dev/null
+        systemctl enable docker 2>/dev/null
+        check_docker
+    else
+        echo -e "${Error} Docker 安装失败，请检查上方错误信息"
+        return 1
+    fi
 }
 
 install_docker_debian() {
-    echo -e "${Info} 使用 APT 安装 Docker (Debian/Ubuntu)..."
+    echo -e "${Info} 使用 APT 安装 Docker ($OS_DISTRO)..."
     
     # 卸载旧版本
     apt-get remove -y docker docker-engine docker.io containerd runc 2>/dev/null || true
     
     # 安装依赖
-    apt-get update
-    apt-get install -y ca-certificates curl gnupg lsb-release
+    if ! apt-get update; then
+        echo -e "${Error} apt-get update 失败"
+        return 1
+    fi
+    
+    if ! apt-get install -y ca-certificates curl gnupg lsb-release; then
+        echo -e "${Error} 依赖包安装失败"
+        return 1
+    fi
     
     # 添加 Docker GPG key
     mkdir -p /etc/apt/keyrings
-    curl -fsSL https://download.docker.com/linux/$OS_DISTRO/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    rm -f /etc/apt/keyrings/docker.gpg
+    if ! curl -fsSL https://download.docker.com/linux/$OS_DISTRO/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg; then
+        echo -e "${Error} GPG Key 下载失败"
+        return 1
+    fi
     chmod a+r /etc/apt/keyrings/docker.gpg
     
     # 添加仓库
@@ -101,14 +143,20 @@ install_docker_debian() {
         $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
     
     # 安装
-    apt-get update
-    apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+    if ! apt-get update; then
+        echo -e "${Error} apt-get update (Docker repo) 失败"
+        return 1
+    fi
+    
+    if ! apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; then
+        echo -e "${Error} Docker 软件包安装失败"
+        return 1
+    fi
     
     # 启动服务
     systemctl enable docker
     systemctl start docker
-    
-    echo -e "${Info} Docker 安装完成"
+    return 0
 }
 
 install_docker_centos() {
