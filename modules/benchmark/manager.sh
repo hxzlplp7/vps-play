@@ -400,7 +400,7 @@ run_superbench() {
 
 run_yabs() {
     echo -e "${Info} 运行 YABS..."
-    curl -sL yabs.sh | bash
+    curl -sL https://yabs.sh | bash
 }
 
 run_speedtest() {
@@ -517,6 +517,7 @@ show_bench_menu() {
     VPS 测评工具
 EOF
         echo -e "${Reset}"
+        echo -e " 模块版本: ${Green}v1.1${Reset}"
         
         # 显示环境信息
         if [ "$is_serv00" = true ]; then
