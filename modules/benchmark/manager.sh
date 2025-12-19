@@ -102,11 +102,57 @@ run_ecs_shell() {
 }
 
 run_ecs_go() {
-    echo -e "${Info} 下载 Go 版本融合怪..."
+    echo -e "${Info} Go 版本融合怪 (goecs)"
     echo -e "${Tip} 来源: github.com/oneclickvirt/ecs"
+    echo -e "${Tip} 特点: 无环境依赖，支持非 root，支持 FreeBSD"
+    echo -e ""
     
     cd "$BENCH_DIR"
     
+    # 下载 goecs.sh
+    echo -e "${Info} 下载安装脚本..."
+    
+    local goecs_url="https://raw.githubusercontent.com/oneclickvirt/ecs/master/goecs.sh"
+    local goecs_cdn="https://cdn.spiritlhl.net/https://raw.githubusercontent.com/oneclickvirt/ecs/master/goecs.sh"
+    
+    if curl -sL "$goecs_cdn" -o goecs.sh 2>/dev/null; then
+        echo -e "${Info} 使用 CDN 加速下载成功"
+    elif curl -sL "$goecs_url" -o goecs.sh 2>/dev/null; then
+        echo -e "${Info} 下载成功"
+    else
+        echo -e "${Error} 下载失败"
+        echo -e "${Tip} 请手动运行:"
+        echo -e "  curl -L $goecs_url -o goecs.sh && chmod +x goecs.sh && ./goecs.sh install && goecs"
+        return 1
+    fi
+    
+    chmod +x goecs.sh
+    
+    # 检查是否已安装 goecs
+    if command -v goecs &>/dev/null; then
+        echo -e "${Info} goecs 已安装，直接运行..."
+        goecs
+    else
+        echo -e "${Info} 安装 goecs..."
+        export noninteractive=true
+        ./goecs.sh install
+        
+        if command -v goecs &>/dev/null; then
+            echo -e "${Info} 安装成功，运行测试..."
+            goecs
+        elif [ -f "$HOME/.local/bin/goecs" ]; then
+            "$HOME/.local/bin/goecs"
+        elif [ -f "/usr/local/bin/goecs" ]; then
+            /usr/local/bin/goecs
+        else
+            echo -e "${Warning} goecs 未找到，尝试直接下载二进制文件..."
+            run_ecs_go_direct
+        fi
+    fi
+}
+
+# 直接下载二进制文件（备用方案）
+run_ecs_go_direct() {
     local arch="amd64"
     case "$(uname -m)" in
         x86_64) arch="amd64" ;;
@@ -116,18 +162,18 @@ run_ecs_go() {
     esac
     
     local os="linux"
-    [ "$is_freebsd" = true ] && os="freebsd"
+    [ "$(uname)" = "FreeBSD" ] && os="freebsd"
     
     local url="https://github.com/oneclickvirt/ecs/releases/latest/download/ecs_${os}_${arch}"
     
-    echo -e "${Info} 下载: $url"
+    echo -e "${Info} 下载二进制文件: ecs_${os}_${arch}"
     
-    if curl -sL "$url" -o ecs_go; then
-        chmod +x ecs_go
-        ./ecs_go
+    if curl -sL "$url" -o goecs_bin 2>/dev/null; then
+        chmod +x goecs_bin
+        ./goecs_bin
     else
         echo -e "${Error} 下载失败"
-        echo -e "${Tip} 请手动访问 https://github.com/oneclickvirt/ecs/releases"
+        echo -e "${Tip} 请访问 https://github.com/oneclickvirt/ecs/releases 手动下载"
     fi
 }
 
