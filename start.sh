@@ -48,6 +48,7 @@ WORK_DIR="$HOME/.vps-play"
 [ -f "$SCRIPT_DIR/utils/port_manager.sh" ] && source "$SCRIPT_DIR/utils/port_manager.sh"
 [ -f "$SCRIPT_DIR/utils/process_manager.sh" ] && source "$SCRIPT_DIR/utils/process_manager.sh"
 [ -f "$SCRIPT_DIR/utils/network.sh" ] && source "$SCRIPT_DIR/utils/network.sh"
+[ -f "$SCRIPT_DIR/utils/system_clean.sh" ] && source "$SCRIPT_DIR/utils/system_clean.sh"
 
 # ==================== 颜色定义 ====================
 Green="\033[32m"
@@ -322,6 +323,7 @@ show_main_menu() {
     echo -e " ${Green}14.${Reset} 环境检测"
     echo -e " ${Green}15.${Reset} 保活设置"
     echo -e " ${Green}16.${Reset} 更新脚本"
+    echo -e " ${Green}17.${Reset} 系统清理"
     echo -e "${Green}---------------------------------------------------${Reset}"
     echo -e " ${Green}0.${Reset}  退出"
     echo -e "${Green}=================================================${Reset}"
@@ -356,11 +358,13 @@ run_module() {
     while true; do
         show_main_menu
         
-        read -p " 请选择 [0-16]: " choice
+        read -p " 请选择 [0-17]: " choice
         
         case "$choice" in
             1)
                 run_module "sing-box" "modules/singbox/manager.sh"
+            # ... (其他 case) 保持不变，我只替换 case 开始和添加最后的 case
+
                 ;;
             2)
                 run_module "GOST" "modules/gost/manager.sh"
@@ -413,12 +417,17 @@ run_module() {
             16)
                 echo -e "${Info} 更新脚本..."
                 curl -sL https://raw.githubusercontent.com/hxzlplp7/vps-play/main/start.sh -o "$SCRIPT_DIR/start.sh.new"
-                if [ -f "$SCRIPT_DIR/start.sh.new" ]; then
+                if [ -s "$SCRIPT_DIR/start.sh.new" ]; then
                     mv "$SCRIPT_DIR/start.sh.new" "$SCRIPT_DIR/start.sh"
                     chmod +x "$SCRIPT_DIR/start.sh"
                     echo -e "${Info} 更新完成，请重新运行脚本"
                     exit 0
+                else
+                    echo -e "${Error} 更新失败"
                 fi
+                ;;
+            17)
+                clean_system
                 ;;
             0)
                 echo -e "${Info} 感谢使用 VPS-play!"
