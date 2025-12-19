@@ -416,6 +416,35 @@ EOF
 
 # ==================== 主菜单 ====================
 show_docker_menu() {
+    # Serv00/HostUno 环境检测
+    local is_serv00=false
+    hostname 2>/dev/null | grep -qiE "serv00|hostuno" && is_serv00=true
+    command -v devil &>/dev/null && is_serv00=true
+    
+    if [ "$is_serv00" = true ]; then
+        clear
+        echo -e "${Cyan}"
+        cat << "EOF"
+    ╔╦╗╔═╗╔═╗╦╔═╔═╗╦═╗
+     ║║║ ║║  ╠╩╗║╣ ╠╦╝
+    ═╩╝╚═╝╚═╝╩ ╩╚═╝╩╚═
+EOF
+        echo -e "${Reset}"
+        echo -e "${Red}========================================${Reset}"
+        echo -e "${Error} Serv00/HostUno 环境不支持 Docker"
+        echo -e "${Red}========================================${Reset}"
+        echo -e ""
+        echo -e " 原因: Docker 需要 root 权限和内核支持"
+        echo -e "       Serv00 是 FreeBSD 共享主机，无法安装容器运行时"
+        echo -e ""
+        echo -e "${Tip} 替代方案:"
+        echo -e "  ${Green}1.${Reset} 直接运行应用二进制文件 (不使用容器)"
+        echo -e "  ${Green}2.${Reset} 使用其他支持 Docker 的 VPS"
+        echo -e ""
+        read -p "按回车返回主菜单..."
+        return 0
+    fi
+    
     while true; do
         clear
         echo -e "${Cyan}"
