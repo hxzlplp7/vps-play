@@ -36,7 +36,7 @@ else
 fi
 
 # 创建目录
-mkdir -p "$INSTALL_DIR"/{utils,modules/{gost,xui,singbox,frpc,frps,cloudflared,nezha,warp},keepalive,config}
+mkdir -p "$INSTALL_DIR"/{utils,modules/{gost,xui,singbox,frpc,frps,cloudflared,nezha,warp,docker,benchmark,argo,jumper},keepalive,config}
 
 echo -e "${Green}[信息]${Reset} 下载脚本..."
 
@@ -74,12 +74,14 @@ download_file "utils/network.sh"
 download_file "utils/system_clean.sh"
 
 echo -e "${Green}[信息]${Reset} 下载功能模块..."
+download_file "modules/singbox/manager.sh"
+download_file "modules/argo/manager.sh"
 download_file "modules/gost/manager.sh"
 download_file "modules/xui/manager.sh"
-download_file "modules/singbox/manager.sh"
 download_file "modules/frpc/manager.sh"
 download_file "modules/frps/manager.sh"
 download_file "modules/cloudflared/manager.sh"
+download_file "modules/jumper/manager.sh"
 download_file "modules/nezha/manager.sh"
 download_file "modules/warp/manager.sh"
 download_file "modules/docker/manager.sh"
