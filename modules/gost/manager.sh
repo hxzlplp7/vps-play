@@ -182,6 +182,10 @@ add_forward() {
     type: udp
   listener:
     type: udp
+    metadata:
+      keepAlive: true
+      ttl: 10s
+      readBufferSize: 4096
   forwarder:
     nodes:
     - name: target-$local_port
@@ -372,7 +376,7 @@ quick_forward() {
       addr: ${target_ip}:${target_port}
 EOF
         
-        # UDP 转发
+        # UDP 转发 (需要添加metadata配置)
         cat >> "$GOST_CONF" <<EOF
 - name: udp-${local_port}-${name}
   addr: :${local_port}
@@ -380,6 +384,10 @@ EOF
     type: udp
   listener:
     type: udp
+    metadata:
+      keepAlive: true
+      ttl: 10s
+      readBufferSize: 4096
   forwarder:
     nodes:
     - name: target-${local_port}
