@@ -40,6 +40,11 @@ check_gost_installed() {
     fi
 }
 
+check_process_running() {
+    local name=$1
+    pgrep -f "$name" >/dev/null 2>&1
+}
+
 check_disk_space() {
     local available_kb=$(df -k "$GOST_DIR" | awk 'NR==2 {print $4}')
     if [ "$available_kb" -lt 51200 ]; then # 需 50MB
