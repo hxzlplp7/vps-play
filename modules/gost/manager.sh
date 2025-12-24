@@ -192,7 +192,7 @@ EOF
     echo -e "${Tip} 请重启服务以生效: [5] 重启服务"
 }
 
-# 快速中转 (一键配置多端口)
+# 快速中转 (粘贴节点链接批量配置)
 quick_forward() {
     if ! check_gost_installed; then
         echo -e "${Error} GOST 未安装，请先安装"
@@ -201,94 +201,147 @@ quick_forward() {
     
     echo -e ""
     echo -e "${Cyan}========== 快速中转配置 ==========${Reset}"
-    echo -e "${Tip} 快速配置落地机中转，支持批量端口"
+    echo -e "${Tip} 粘贴落地机节点链接，自动解析并配置转发"
+    echo -e ""
+    echo -e "${Info} 支持的节点格式:"
+    echo -e "  - vmess://..."
+    echo -e "  - vless://..."
+    echo -e "  - trojan://..."
+    echo -e "  - hysteria2://..."
+    echo -e "  - hy2://..."
+    echo -e "  - tuic://..."
+    echo -e "  - ss://..."
+    echo -e ""
+    echo -e "${Yellow}请粘贴节点链接 (一行一个，输入空行结束):${Reset}"
     echo -e ""
     
-    # 落地机IP
-    read -p "落地机 IP: " target_ip
-    if [ -z "$target_ip" ]; then
-        echo -e "${Error} IP 不能为空"
-        return
-    fi
-    
-    echo -e ""
-    echo -e "${Info} 端口配置方式:"
-    echo -e " ${Green}1.${Reset} 单端口转发 (中转和落地使用相同端口)"
-    echo -e " ${Green}2.${Reset} 端口范围转发 (如 10000-10010)"
-    echo -e " ${Green}3.${Reset} 多端口列表 (如 443,8443,10000)"
-    echo -e " ${Green}4.${Reset} 端口映射 (本地:远程，如 10000:443)"
-    echo -e ""
-    
-    read -p "选择 [1-4]: " port_mode
-    
-    local ports_to_add=()
-    local mappings=()
-    
-    case "$port_mode" in
-        1)
-            read -p "输入端口号: " single_port
-            if [ -n "$single_port" ]; then
-                ports_to_add+=("$single_port:$single_port")
-            fi
-            ;;
-        2)
-            read -p "起始端口: " start_port
-            read -p "结束端口: " end_port
-            if [ -n "$start_port" ] && [ -n "$end_port" ]; then
-                for ((p=start_port; p<=end_port; p++)); do
-                    ports_to_add+=("$p:$p")
-                done
-            fi
-            ;;
-        3)
-            read -p "输入端口列表 (逗号分隔): " port_list
-            IFS=',' read -ra raw_ports <<< "$port_list"
-            for p in "${raw_ports[@]}"; do
-                p=$(echo "$p" | tr -d ' ')
-                [ -n "$p" ] && ports_to_add+=("$p:$p")
-            done
-            ;;
-        4)
-            echo -e "${Tip} 格式: 本地端口:远程端口 (多个用逗号分隔)"
-            read -p "输入映射: " mapping_list
-            IFS=',' read -ra raw_mappings <<< "$mapping_list"
-            for m in "${raw_mappings[@]}"; do
-                m=$(echo "$m" | tr -d ' ')
-                [ -n "$m" ] && ports_to_add+=("$m")
-            done
-            ;;
-        *)
-            echo -e "${Error} 无效选择"
-            return
-            ;;
-    esac
-    
-    if [ ${#ports_to_add[@]} -eq 0 ]; then
-        echo -e "${Error} 未配置任何端口"
-        return
-    fi
-    
-    echo -e ""
-    echo -e "${Info} 即将配置 ${#ports_to_add[@]} 条转发规则:"
-    echo -e " 目标: ${Cyan}${target_ip}${Reset}"
-    
-    for mapping in "${ports_to_add[@]}"; do
-        local local_port=$(echo "$mapping" | cut -d':' -f1)
-        local remote_port=$(echo "$mapping" | cut -d':' -f2)
-        echo -e " ${local_port} -> ${target_ip}:${remote_port}"
+    local nodes=()
+    while true; do
+        read -r line
+        if [ -z "$line" ]; then
+            break
+        fi
+        nodes+=("$line")
     done
     
+    if [ ${#nodes[@]} -eq 0 ]; then
+        echo -e "${Error} 未输入任何节点"
+        return
+    fi
+    
     echo -e ""
-    read -p "确认配置? [Y/n]: " confirm
+    echo -e "${Info} 解析到 ${#nodes[@]} 个节点"
+    echo -e ""
+    
+    # 解析节点获取 IP 和端口
+    local configs=()
+    local index=1
+    
+    for node in "${nodes[@]}"; do
+        local node_ip=""
+        local node_port=""
+        local node_type=""
+        
+        # 解析不同类型的节点
+        if [[ "$node" == vmess://* ]]; then
+            node_type="vmess"
+            # vmess 是 base64 编码的 JSON
+            local decoded=$(echo "${node#vmess://}" | base64 -d 2>/dev/null)
+            if [ -n "$decoded" ]; then
+                node_ip=$(echo "$decoded" | grep -oP '"add"\s*:\s*"\K[^"]+' | head -1)
+                node_port=$(echo "$decoded" | grep -oP '"port"\s*:\s*"?\K[0-9]+' | head -1)
+            fi
+        elif [[ "$node" == vless://* ]]; then
+            node_type="vless"
+            # vless://uuid@server:port?params#name
+            local server_part=$(echo "${node#vless://}" | cut -d'#' -f1 | cut -d'?' -f1)
+            node_ip=$(echo "$server_part" | sed 's/.*@//' | cut -d':' -f1)
+            node_port=$(echo "$server_part" | sed 's/.*@//' | cut -d':' -f2)
+        elif [[ "$node" == trojan://* ]]; then
+            node_type="trojan"
+            # trojan://password@server:port?params#name
+            local server_part=$(echo "${node#trojan://}" | cut -d'#' -f1 | cut -d'?' -f1)
+            node_ip=$(echo "$server_part" | sed 's/.*@//' | cut -d':' -f1)
+            node_port=$(echo "$server_part" | sed 's/.*@//' | cut -d':' -f2)
+        elif [[ "$node" == hysteria2://* ]] || [[ "$node" == hy2://* ]]; then
+            node_type="hy2"
+            # hysteria2://auth@server:port?params#name
+            local clean_node="${node#hysteria2://}"
+            clean_node="${clean_node#hy2://}"
+            local server_part=$(echo "$clean_node" | cut -d'#' -f1 | cut -d'?' -f1)
+            node_ip=$(echo "$server_part" | sed 's/.*@//' | cut -d':' -f1)
+            node_port=$(echo "$server_part" | sed 's/.*@//' | cut -d':' -f2)
+        elif [[ "$node" == tuic://* ]]; then
+            node_type="tuic"
+            # tuic://uuid:password@server:port?params#name
+            local server_part=$(echo "${node#tuic://}" | cut -d'#' -f1 | cut -d'?' -f1)
+            node_ip=$(echo "$server_part" | sed 's/.*@//' | cut -d':' -f1)
+            node_port=$(echo "$server_part" | sed 's/.*@//' | cut -d':' -f2)
+        elif [[ "$node" == ss://* ]]; then
+            node_type="ss"
+            # ss://base64@server:port#name 或 ss://base64#name
+            local clean_node="${node#ss://}"
+            if [[ "$clean_node" == *@* ]]; then
+                local server_part=$(echo "$clean_node" | cut -d'#' -f1 | sed 's/.*@//')
+                node_ip=$(echo "$server_part" | cut -d':' -f1)
+                node_port=$(echo "$server_part" | cut -d':' -f2)
+            else
+                # 纯base64格式，尝试解码
+                local decoded=$(echo "$clean_node" | cut -d'#' -f1 | base64 -d 2>/dev/null)
+                if [ -n "$decoded" ]; then
+                    node_ip=$(echo "$decoded" | sed 's/.*@//' | cut -d':' -f1)
+                    node_port=$(echo "$decoded" | sed 's/.*@//' | cut -d':' -f2)
+                fi
+            fi
+        else
+            echo -e "${Warning} 节点 $index: 无法识别的格式，跳过"
+            ((index++))
+            continue
+        fi
+        
+        # 检查解析结果
+        if [ -z "$node_ip" ] || [ -z "$node_port" ]; then
+            echo -e "${Warning} 节点 $index: 解析失败，跳过"
+            ((index++))
+            continue
+        fi
+        
+        # 获取节点名称
+        local node_name=$(echo "$node" | grep -oP '#\K.*' | head -1)
+        [ -z "$node_name" ] && node_name="节点$index"
+        
+        echo -e "${Cyan}[$index] ${node_type} - ${node_name}${Reset}"
+        echo -e "    落地: ${node_ip}:${node_port}"
+        
+        # 询问本地监听端口
+        read -p "    本地端口 [默认 $node_port]: " local_port
+        local_port=${local_port:-$node_port}
+        
+        configs+=("$local_port|$node_ip|$node_port|$node_name")
+        echo -e "    ${Green}✓${Reset} 配置: 本地 $local_port -> ${node_ip}:${node_port}"
+        echo -e ""
+        
+        ((index++))
+    done
+    
+    if [ ${#configs[@]} -eq 0 ]; then
+        echo -e "${Error} 没有有效的配置"
+        return
+    fi
+    
+    echo -e ""
+    echo -e "${Info} 共配置 ${#configs[@]} 条转发规则"
+    read -p "确认写入配置? [Y/n]: " confirm
     [[ $confirm =~ ^[Nn]$ ]] && return
     
-    # 清空旧配置
+    # 清空旧配置并写入新配置
     echo "services:" > "$GOST_CONF"
     
-    # 添加配置
-    for mapping in "${ports_to_add[@]}"; do
-        local local_port=$(echo "$mapping" | cut -d':' -f1)
-        local remote_port=$(echo "$mapping" | cut -d':' -f2)
+    for cfg in "${configs[@]}"; do
+        local local_port=$(echo "$cfg" | cut -d'|' -f1)
+        local target_ip=$(echo "$cfg" | cut -d'|' -f2)
+        local target_port=$(echo "$cfg" | cut -d'|' -f3)
+        local name=$(echo "$cfg" | cut -d'|' -f4)
         
         # 开放端口
         open_port "$local_port" "tcp" 2>/dev/null
@@ -296,7 +349,7 @@ quick_forward() {
         
         # TCP 转发
         cat >> "$GOST_CONF" <<EOF
-- name: tcp-${local_port}
+- name: tcp-${local_port}-${name}
   addr: :${local_port}
   handler:
     type: tcp
@@ -305,12 +358,12 @@ quick_forward() {
   forwarder:
     nodes:
     - name: target-${local_port}
-      addr: ${target_ip}:${remote_port}
+      addr: ${target_ip}:${target_port}
 EOF
         
         # UDP 转发
         cat >> "$GOST_CONF" <<EOF
-- name: udp-${local_port}
+- name: udp-${local_port}-${name}
   addr: :${local_port}
   handler:
     type: udp
@@ -319,12 +372,12 @@ EOF
   forwarder:
     nodes:
     - name: target-${local_port}
-      addr: ${target_ip}:${remote_port}
+      addr: ${target_ip}:${target_port}
 EOF
     done
     
     echo -e ""
-    echo -e "${Info} 配置完成，共 ${#ports_to_add[@]} 条规则"
+    echo -e "${Info} 配置完成"
     
     # 自动重启
     read -p "是否立即启动/重启 GOST? [Y/n]: " auto_restart
