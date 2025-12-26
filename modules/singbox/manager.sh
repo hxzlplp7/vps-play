@@ -36,7 +36,7 @@ CONFIG_DIR="$SINGBOX_DIR/config"
 SINGBOX_API_PORT=9090
 
 # sing-box 版本
-SINGBOX_VERSION="1.10.0"
+SINGBOX_VERSION="1.12.0"
 SINGBOX_REPO="https://github.com/SagerNet/sing-box"
 
 mkdir -p "$SINGBOX_DIR" "$CERT_DIR" "$CONFIG_DIR"
@@ -190,7 +190,15 @@ config_port() {
 }
 
 # ==================== 下载安装 ====================
-# 版本比较函数 (大于等于)
+# 获取当前安装版本
+get_version() {
+    if [ -f "$SINGBOX_BIN" ]; then
+        $SINGBOX_BIN version 2>/dev/null | head -n1 | awk '{print $3}'
+    else
+        echo ""
+    fi
+}
+
 # 版本比较函数 (大于等于)
 version_ge() {
     # 如果版本相同
@@ -877,11 +885,12 @@ install_combo() {
     echo -e " ${Green}3.${Reset} VLESS Reality"
     echo -e " ${Green}4.${Reset} Shadowsocks"
     echo -e " ${Green}5.${Reset} Trojan"
+    echo -e " ${Green}6.${Reset} AnyTLS"
     echo -e ""
-    echo -e " ${Cyan}示例: 1,2,3 表示安装 Hysteria2 + TUIC + VLESS Reality${Reset}"
+    echo -e " ${Cyan}示例: 1,3,6 表示安装 Hysteria2 + VLESS + AnyTLS${Reset}"
     echo -e ""
     
-    read -p "请选择 [1-5]: " combo_choice
+    read -p "请选择 [1-6]: " combo_choice
     
     if [ -z "$combo_choice" ]; then
         echo -e "${Error} 未选择任何协议"
@@ -896,6 +905,7 @@ install_combo() {
     local install_vless=false
     local install_ss=false
     local install_trojan=false
+    local install_anytls=false
     
     for p in "${protocols[@]}"; do
         case "$(echo $p | tr -d ' ')" in
@@ -904,8 +914,17 @@ install_combo() {
             3) install_vless=true ;;
             4) install_ss=true ;;
             5) install_trojan=true ;;
+            6) install_anytls=true ;;
         esac
     done
+    
+    # AnyTLS 版本检查
+    if [ "$install_anytls" = true ]; then
+        if ! version_ge "$(get_version)" "1.12.0"; then
+            echo -e "${Info} AnyTLS 需要升级 sing-box 到 1.12.0+，正在自动升级..."
+            download_singbox "1.12.0"
+        fi
+    fi
     
     # 配置证书 (Hysteria2, TUIC, Trojan 需要)
     if [ "$install_hy2" = true ] || [ "$install_tuic" = true ] || [ "$install_trojan" = true ]; then
@@ -935,6 +954,7 @@ install_combo() {
     local vless_port=""
     local ss_port=""
     local trojan_port=""
+    local anytls_port=""
     
     if [ "$port_mode" = "2" ]; then
         # 手动指定端口
@@ -965,6 +985,11 @@ install_combo() {
             read -p "Trojan 端口: " trojan_port
             [ -z "$trojan_port" ] && trojan_port=$(shuf -i 10000-65535 -n 1)
         fi
+        
+        if [ "$install_anytls" = true ]; then
+            read -p "AnyTLS 端口: " anytls_port
+            [ -z "$anytls_port" ] && anytls_port=$(shuf -i 10000-65535 -n 1)
+        fi
     else
         # 自动分配
         local base_port=$(shuf -i 10000-50000 -n 1)
@@ -973,6 +998,7 @@ install_combo() {
         [ "$install_vless" = true ] && vless_port=$((base_port + 2))
         [ "$install_ss" = true ] && ss_port=$((base_port + 3))
         [ "$install_trojan" = true ] && trojan_port=$((base_port + 4))
+        [ "$install_anytls" = true ] && anytls_port=$((base_port + 5))
     fi
     
     echo -e ""
@@ -982,6 +1008,7 @@ install_combo() {
     [ -n "$vless_port" ] && echo -e " VLESS: ${Cyan}${vless_port}${Reset}"
     [ -n "$ss_port" ] && echo -e " SS: ${Cyan}${ss_port}${Reset}"
     [ -n "$trojan_port" ] && echo -e " Trojan: ${Cyan}${trojan_port}${Reset}"
+    [ -n "$anytls_port" ] && echo -e " AnyTLS: ${Cyan}${anytls_port}${Reset}"
     
     # 构建配置
     local inbounds=""
@@ -1167,6 +1194,42 @@ SNI: ${CERT_DOMAIN:-www.bing.com}"
         
         links="${links}
 trojan://${password}@${server_ip}:${trojan_port}?sni=${CERT_DOMAIN:-www.bing.com}&allowInsecure=1#Trojan-${server_ip}"
+    fi
+    # AnyTLS 配置
+    if [ "$install_anytls" = true ]; then
+        local handshake="www.bing.com"
+        local anytls_mixed_port=$(shuf -i 20000-60000 -n 1)
+        [ -n "$inbounds" ] && inbounds="${inbounds},"
+        # 注意: JSON 中引用变量需要小心转义
+        inbounds="${inbounds}
+    {
+      \"type\": \"anytls\",
+      \"tag\": \"anytls-in\",
+      \"listen\": \"::\",
+      \"listen_port\": ${anytls_port},
+      \"users\": [{\"password\": \"${password}\"}],
+      \"handshake\": {\"server\": \"${handshake}\", \"server_port\": 443},
+      \"detour\": \"mixed-in-anytls\"
+    },
+    {
+      \"type\": \"mixed\",
+      \"tag\": \"mixed-in-anytls\",
+      \"listen\": \"127.0.0.1\",
+      \"listen_port\": ${anytls_mixed_port}
+    }"
+    
+    node_info="${node_info}
+[AnyTLS]
+端口: ${anytls_port}
+密码: ${password}
+SNI: ${handshake}
+说明: 需 sing-box 1.12.0+ 客户端"
+
+    # 生成简化版 Outbound JSON 供复制
+    local out_json="{\"type\":\"anytls\",\"tag\":\"anytls-out\",\"server\":\"$server_ip\",\"server_port\":$anytls_port,\"password\":\"$password\",\"tls\":{\"enabled\":true,\"server_name\":\"$handshake\",\"utls\":{\"enabled\":true,\"fingerprint\":\"chrome\"}}}"
+    links="${links}
+AnyTLS配置(JSON):
+${out_json}"
     fi
     
     # 生成完整配置
