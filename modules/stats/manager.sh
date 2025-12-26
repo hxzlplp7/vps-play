@@ -372,10 +372,33 @@ start_argo_tunnel() {
     local port=$1
     local cloudflared_bin="$HOME/.vps-play/app/cloudflared"
     
+    # 检测 cloudflared
     if ! [ -f "$cloudflared_bin" ]; then
         echo -e "${Info} 未找到 cloudflared，尝试安装..."
-        bash <(curl -sL https://raw.githubusercontent.com/hxzlplp7/vps-play/main/modules/argo/manager.sh) install
+        
+        # 独立的下载逻辑，避免调用 argo/manager.sh 的菜单
+        local download_url=""
+        local arch_name=""
+        
+        case "$(uname -m)" in
+            x86_64|amd64) arch_name="amd64" ;;
+            aarch64|arm64) arch_name="arm64" ;;
+            armv7l) arch_name="arm" ;;
+            i386|i686) arch_name="386" ;;
+            *) 
+                echo -e "${Error} 不支持的架构: $(uname -m)"; return 1 ;;
+        esac
+        
+        case "$(uname)" in
+            Linux) download_url="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${arch_name}" ;;
+            FreeBSD) download_url="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-freebsd-${arch_name}" ;;
+            *) echo -e "${Error} 不支持的系统: $(uname)"; return 1 ;;
+        esac
+        
+        curl -sL "$download_url" -o "$cloudflared_bin"
+        chmod +x "$cloudflared_bin"
     fi
+    
     
     if [ -f "$cloudflared_bin" ]; then
         echo -e "${Info} 启动 Argo 隧道..."
