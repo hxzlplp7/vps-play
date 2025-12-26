@@ -346,16 +346,17 @@ show_main_menu() {
     echo -e " ${Green}10.${Reset} WARP 代理"
     echo -e " ${Green}11.${Reset} Docker 管理"
     echo -e " ${Green}12.${Reset} VPS 测评"
+    echo -e " ${Green}13.${Reset} 流量统计 ${Cyan}(API)${Reset}"
     echo -e "${Green}---------------------------------------------------${Reset}"
     echo -e " ${Yellow}系统工具${Reset}"
-    echo -e " ${Green}13.${Reset} 端口管理"
-    echo -e " ${Green}14.${Reset} 进程管理"
-    echo -e " ${Green}15.${Reset} 网络工具"
-    echo -e " ${Green}16.${Reset} 环境检测"
-    echo -e " ${Green}17.${Reset} 保活设置"
-    echo -e " ${Green}18.${Reset} 更新脚本"
-    echo -e " ${Green}19.${Reset} 系统清理"
-    echo -e " ${Red}20.${Reset} ${Red}卸载脚本${Reset}"
+    echo -e " ${Green}14.${Reset} 端口管理"
+    echo -e " ${Green}15.${Reset} 进程管理"
+    echo -e " ${Green}16.${Reset} 网络工具"
+    echo -e " ${Green}17.${Reset} 环境检测"
+    echo -e " ${Green}18.${Reset} 保活设置"
+    echo -e " ${Green}19.${Reset} 更新脚本"
+    echo -e " ${Green}20.${Reset} 系统清理"
+    echo -e " ${Red}21.${Reset} ${Red}卸载脚本${Reset}"
     echo -e "${Green}---------------------------------------------------${Reset}"
     echo -e " ${Green}0.${Reset}  退出"
     echo -e "${Green}=================================================${Reset}"
@@ -391,7 +392,7 @@ main_loop() {
     while true; do
         show_main_menu
         
-        read -p " 请选择 [0-20]: " choice
+        read -p " 请选择 [0-21]: " choice
         
         case "$choice" in
             1)
@@ -431,6 +432,9 @@ main_loop() {
                 run_module "VPS测评" "modules/benchmark/manager.sh"
                 ;;
             13)
+                run_module "流量统计" "modules/stats/manager.sh"
+                ;;
+            14)
                 if type port_manage_menu &>/dev/null; then
                     port_manage_menu
                 else
@@ -438,7 +442,7 @@ main_loop() {
                     echo -e "${Tip} 请尝试重新安装: curl -sL https://raw.githubusercontent.com/hxzlplp7/vps-play/main/install.sh | bash"
                 fi
                 ;;
-            14)
+            15)
                 # 进程管理
                 clear
                 echo -e "${Cyan}==================== 进程管理 ====================${Reset}"
@@ -503,7 +507,7 @@ main_loop() {
                         ;;
                 esac
                 ;;
-            15)
+            16)
                 # 网络工具
                 if type network_info &>/dev/null; then
                     network_info
@@ -512,7 +516,7 @@ main_loop() {
                     echo -e "${Tip} 查看 IP: curl -s ip.sb"
                 fi
                 ;;
-            16)
+            17)
                 if type detect_environment &>/dev/null; then
                     detect_environment
                     show_env_info 2>/dev/null || echo -e "${Info} 环境检测完成"
@@ -520,7 +524,7 @@ main_loop() {
                     echo -e "${Warning} 环境检测工具未加载"
                 fi
                 ;;
-            17)
+            18)
                 # 保活系统
                 if [ -f "$SCRIPT_DIR/keepalive/manager.sh" ]; then
                     bash "$SCRIPT_DIR/keepalive/manager.sh"
@@ -528,7 +532,7 @@ main_loop() {
                     echo -e "${Error} 保活模块未找到"
                 fi
                 ;;
-            18)
+            19)
                 echo -e "${Info} 更新脚本..."
                 curl -sL https://raw.githubusercontent.com/hxzlplp7/vps-play/main/start.sh -o "$SCRIPT_DIR/start.sh.new"
                 if [ -s "$SCRIPT_DIR/start.sh.new" ]; then
@@ -540,7 +544,7 @@ main_loop() {
                     echo -e "${Error} 更新失败"
                 fi
                 ;;
-            19)
+            20)
                 # 系统清理 - 尝试多个可能的路径
                 local clean_script=""
                 for _p in "$SCRIPT_DIR/utils/system_clean.sh" "$HOME/vps-play/utils/system_clean.sh" "/root/vps-play/utils/system_clean.sh"; do
@@ -559,7 +563,7 @@ main_loop() {
                     echo -e "  rm -rf /tmp/* /var/log/*.gz"
                 fi
                 ;;
-            20)
+            21)
                 # 卸载脚本
                 local uninstall_script=""
                 for _p in "$SCRIPT_DIR/uninstall.sh" "$HOME/vps-play/uninstall.sh" "/root/vps-play/uninstall.sh"; do

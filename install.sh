@@ -36,7 +36,7 @@ else
 fi
 
 # 创建目录
-mkdir -p "$INSTALL_DIR"/{utils,modules/{gost,xui,singbox,frpc,frps,cloudflared,nezha,warp,docker,benchmark,argo,jumper},keepalive,config}
+mkdir -p "$INSTALL_DIR"/{utils,modules/{gost,xui,singbox,frpc,frps,cloudflared,nezha,warp,docker,benchmark,argo,jumper,stats},keepalive,config}
 
 echo -e "${Green}[信息]${Reset} 下载脚本..."
 
@@ -86,6 +86,7 @@ download_file "modules/nezha/manager.sh"
 download_file "modules/warp/manager.sh"
 download_file "modules/docker/manager.sh"
 download_file "modules/benchmark/manager.sh"
+download_file "modules/stats/manager.sh"
 
 echo -e "${Green}[信息]${Reset} 下载保活模块..."
 download_file "keepalive/manager.sh"
