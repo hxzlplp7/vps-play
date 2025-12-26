@@ -516,8 +516,8 @@ OUTBOUND配置示例:
 }
 EOF
 
-    # 生成分享链接（参考 argosbx 格式，添加 insecure 参数）
-    local anytls_link="anytls://${password}@${server_ip}:${port}?insecure=1&allowInsecure=1#anytls-${hostname}"
+    # 生成分享链接（完整格式，兼容 Worker.js 和 sublinkPro）
+    local anytls_link="anytls://${password}@${server_ip}:${port}?insecure=1&allowInsecure=1&sni=${cert_domain}&fp=chrome#anytls-${hostname}"
     local out_json="{\"type\":\"anytls\",\"tag\":\"anytls-out\",\"server\":\"$server_ip\",\"server_port\":$port,\"password\":\"$password\",\"tls\":{\"enabled\":true,\"server_name\":\"$cert_domain\",\"insecure\":true}}"
     
     # 保存链接和JSON
@@ -686,7 +686,7 @@ OUTBOUND配置示例:
 }
 EOF
 
-    # 生成分享链接（参考 argosbx 格式）
+    # 生成分享链接（完整格式，兼容 Worker.js 和 sublinkPro）
     local ar_link="anytls://${password}@${server_ip}:${port}?security=reality&sni=${server_name}&fp=chrome&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#any-reality-${hostname}"
     
     # 保存链接

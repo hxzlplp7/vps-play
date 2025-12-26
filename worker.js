@@ -486,44 +486,102 @@ async function MD5MD5(text) {
 	return secondHex.toLowerCase();
 }
 
-// 解析 anytls:// 链接
+// 解析 anytls:// 链接（改进版，参考 sublinkPro 实现）
 function parseAnyTLSLink(link) {
 	try {
-		// anytls://password@server:port#remark
-		const match = link.match(/^anytls:\/\/([^@]+)@([^:]+):(\d+)(?:#(.+))?$/);
-		if (!match) return null;
+		// 支持完整的 URL 解析
+		// 格式: anytls://password@server:port?insecure=1&sni=example.com&fp=chrome#remark
+		// Reality: anytls://password@server:port?security=reality&sni=apple.com&fp=chrome&pbk=公钥&sid=短ID#remark
+		const url = new URL(link);
 
-		const [, password, server, port, remark] = match;
+		const server = url.hostname;
+		const port = parseInt(url.port) || 443;
+		const password = decodeURIComponent(url.username);
+		const remark = url.hash ? decodeURIComponent(url.hash.substring(1)) : `AnyTLS-${server}`;
+
+		// 解析查询参数
+		const params = new URLSearchParams(url.search);
+		const insecure = params.get('insecure') === '1' || params.get('allowInsecure') === '1' || !params.has('insecure');
+		const sni = params.get('sni') || server;
+		const fingerprint = params.get('fp') || 'chrome';
+		const security = params.get('security') || '';
+
+		// Reality 参数
+		const publicKey = params.get('pbk') || '';
+		const shortId = params.get('sid') || '';
+
 		return {
-			password: decodeURIComponent(password),
+			password,
 			server,
-			port: parseInt(port),
-			remark: remark ? decodeURIComponent(remark) : `AnyTLS-${server}`
+			port,
+			remark,
+			skipCertVerify: insecure,
+			sni,
+			fingerprint,
+			security,
+			// Reality 相关
+			publicKey,
+			shortId,
+			// 原始链接
+			raw: link
 		};
 	} catch (e) {
-		console.error('解析 AnyTLS 链接失败:', e);
-		return null;
+		console.error('解析 AnyTLS 链接失败:', e, '链接:', link);
+
+		// 回退到简单解析（保持兼容性）
+		try {
+			const match = link.match(/^anytls:\/\/([^@]+)@([^:]+):(\d+)(?:#(.+))?$/);
+			if (!match) return null;
+
+			const [, password, server, port, remark] = match;
+			return {
+				password: decodeURIComponent(password),
+				server,
+				port: parseInt(port),
+				remark: remark ? decodeURIComponent(remark) : `AnyTLS-${server}`,
+				skipCertVerify: true,
+				sni: server,
+				fingerprint: 'chrome',
+				security: '',
+				publicKey: '',
+				shortId: '',
+				raw: link
+			};
+		} catch (e2) {
+			console.error('简单解析也失败:', e2);
+			return null;
+		}
 	}
 }
 
-// 将 AnyTLS 节点转换为 Clash YAML 格式（多行 Block 格式）
+// 将 AnyTLS 节点转换为 Clash YAML 格式（多行 Block 格式，改进版）
 function anyTLSToClashYAML(node) {
 	// 使用多行Block格式，Clash Meta 需要这种格式才能识别
-	return `  - name: "${node.remark}"
+	let yaml = `  - name: "${node.remark}"
     type: anytls
     server: ${node.server}
     port: ${node.port}
     password: "${node.password}"
-    client-fingerprint: chrome
-    udp: true
-    idle-session-check-interval: 30
-    idle-session-timeout: 30
-    min-idle-session: 0
-    sni: "${node.server}"
-    alpn:
+    skip-cert-verify: ${node.skipCertVerify}
+    sni: "${node.sni}"
+    client-fingerprint: ${node.fingerprint}
+    udp: true`;
+
+	// 添加 ALPN（Clash Meta 支持）
+	yaml += `\n    alpn:
       - h2
-      - http/1.1
-    skip-cert-verify: true`;
+      - http/1.1`;
+
+	// 如果是 Any-Reality（AnyTLS + Reality）
+	if (node.security === 'reality' && node.publicKey) {
+		yaml += `\n    reality-opts:
+      public-key: ${node.publicKey}`;
+		if (node.shortId) {
+			yaml += `\n      short-id: ${node.shortId}`;
+		}
+	}
+
+	return yaml;
 }
 
 function clashFix(content) {
@@ -570,19 +628,19 @@ function addAnyTLSToClash(clashYAML, anyTLSNodes) {
 			return clashYAML;
 		}
 
-	// 生成 AnyTLS 节点的 YAML 并分割成行数组（多行Block格式需要分割）
-	const anyTLSLines = [];
-	for (const node of anyTLSNodes) {
-		const nodeYAML = anyTLSToClashYAML(node);
-		// 将多行 YAML 分割成单独的行
-		anyTLSLines.push(...nodeYAML.split('\n'));
-	}
-	
-	// 在 proxies: 后逐行插入 AnyTLS 节点（从后往前插入保持顺序）
-	for (let i = anyTLSLines.length - 1; i >= 0; i--) {
-		lines.splice(proxiesIndex + 1, 0, anyTLSLines[i]);
-	}
-	
+		// 生成 AnyTLS 节点的 YAML 并分割成行数组（多行Block格式需要分割）
+		const anyTLSLines = [];
+		for (const node of anyTLSNodes) {
+			const nodeYAML = anyTLSToClashYAML(node);
+			// 将多行 YAML 分割成单独的行
+			anyTLSLines.push(...nodeYAML.split('\n'));
+		}
+
+		// 在 proxies: 后逐行插入 AnyTLS 节点（从后往前插入保持顺序）
+		for (let i = anyTLSLines.length - 1; i >= 0; i--) {
+			lines.splice(proxiesIndex + 1, 0, anyTLSLines[i]);
+		}
+
 		const result = lines.join('\n');
 		console.log(`成功添加 ${anyTLSNodes.length} 个 AnyTLS 节点到 Clash 配置`);
 		return result;
