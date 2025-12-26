@@ -836,8 +836,8 @@ install_vless_reality() {
     
     # Reality 配置
     echo -e ""
-    read -p "目标网站 (dest) [www.microsoft.com]: " dest
-    dest=${dest:-www.microsoft.com}
+    read -p "目标网站 (dest) [www.apple.com]: " dest
+    dest=${dest:-www.apple.com}
     
     read -p "Server Name [${dest}]: " server_name
     server_name=${server_name:-$dest}
@@ -1319,7 +1319,7 @@ tuic://${uuid}:${password}@${server_ip}:${tuic_port}?sni=${CERT_DOMAIN:-www.bing
         local private_key=$(echo "$keypair" | grep -i "privatekey" | awk '{print $2}')
         local public_key=$(echo "$keypair" | grep -i "publickey" | awk '{print $2}')
         local short_id=$(head /dev/urandom | tr -dc a-f0-9 | head -c 8)
-        local dest="www.microsoft.com"
+        local dest="www.apple.com"
         
         [ -n "$inbounds" ] && inbounds="${inbounds},"
         inbounds="${inbounds}
@@ -1705,8 +1705,8 @@ install_combo_internal() {
         local short_id=$(head /dev/urandom | tr -dc a-f0-9 | head -c 8)
         
         [ -n "$inbounds" ] && inbounds="${inbounds},"
-        inbounds="${inbounds}{\"type\":\"vless\",\"tag\":\"vless\",\"listen\":\"::\",\"listen_port\":${vless_port},\"users\":[{\"uuid\":\"${uuid}\",\"flow\":\"xtls-rprx-vision\"}],\"tls\":{\"enabled\":true,\"server_name\":\"www.microsoft.com\",\"reality\":{\"enabled\":true,\"handshake\":{\"server\":\"www.microsoft.com\",\"server_port\":443},\"private_key\":\"${private_key}\",\"short_id\":[\"${short_id}\"]}}}"
-        links="${links}\nvless://${uuid}@${server_ip}:${vless_port}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.microsoft.com&fp=chrome&pbk=${public_key}&sid=${short_id}&type=tcp#VLESS-Reality"
+        inbounds="${inbounds}{\"type\":\"vless\",\"tag\":\"vless\",\"listen\":\"::\",\"listen_port\":${vless_port},\"users\":[{\"uuid\":\"${uuid}\",\"flow\":\"xtls-rprx-vision\"}],\"tls\":{\"enabled\":true,\"server_name\":\"www.apple.com\",\"reality\":{\"enabled\":true,\"handshake\":{\"server\":\"www.apple.com\",\"server_port\":443},\"private_key\":\"${private_key}\",\"short_id\":[\"${short_id}\"]}}}"
+        links="${links}\nvless://${uuid}@${server_ip}:${vless_port}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.apple.com&fp=chrome&pbk=${public_key}&sid=${short_id}&type=tcp#VLESS-Reality"
     fi
     
     if [ "$install_ss" = true ]; then
