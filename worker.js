@@ -486,76 +486,111 @@ async function MD5MD5(text) {
 	return secondHex.toLowerCase();
 }
 
-// 解析 anytls:// 链接（参考 sub2clash-main 实现）
+// 解析 anytls:// 链接（改进版，参考 sublinkPro 实现）
 function parseAnyTLSLink(link) {
 	try {
-		// 参考: sub2clash-main/parser/anytls.go
+		// 支持完整的 URL 解析
+		// 格式: anytls://password@server:port?insecure=1&sni=example.com&fp=chrome#remark
+		// Reality: anytls://password@server:port?security=reality&sni=apple.com&fp=chrome&pbk=公钥&sid=短ID#remark
 		const url = new URL(link);
 
 		const server = url.hostname;
 		const port = parseInt(url.port) || 443;
 
-		// 密码可以在 username 或 password 位置
-		const username = url.username ? decodeURIComponent(url.username) : '';
-		const password = url.password ? decodeURIComponent(url.password) : username;
+		// 密码解析逻辑 (参考 sub2clash)
+		// 优先使用 URL 中的 password (user:password@host)
+		// 如果没有 password，则使用 username (password@host)
+		let password = decodeURIComponent(url.password);
+		if (!password) {
+			password = decodeURIComponent(url.username);
+		}
 
-		// 查询参数
+		const remark = url.hash ? decodeURIComponent(url.hash.substring(1)) : `AnyTLS-${server}`;
+
+		// 解析查询参数
 		const params = new URLSearchParams(url.search);
-		const insecure = params.get('insecure') === '1';
-		const sni = params.get('sni') || '';
+		const insecure = params.get('insecure') === '1' || params.get('allowInsecure') === '1' || !params.has('insecure');
+		const sni = params.get('sni') || server;
+		const fingerprint = params.get('fp') || 'chrome';
+		const security = params.get('security') || '';
 
-		// 备注名
-		const remark = url.hash ? decodeURIComponent(url.hash.substring(1)) : `${server}:${port}`;
+		// Reality 参数
+		const publicKey = params.get('pbk') || '';
+		const shortId = params.get('sid') || '';
 
 		return {
+			password,
 			server,
 			port,
-			password,
-			sni,
+			remark,
 			skipCertVerify: insecure,
-			remark
+			sni,
+			fingerprint,
+			security,
+			// Reality 相关
+			publicKey,
+			shortId,
+			// 原始链接
+			raw: link
 		};
 	} catch (e) {
 		console.error('解析 AnyTLS 链接失败:', e, '链接:', link);
-		return null;
+
+		// 回退到简单解析（保持兼容性）
+		try {
+			const match = link.match(/^anytls:\/\/([^@]+)@([^:]+):(\d+)(?:#(.+))?$/);
+			if (!match) return null;
+
+			const [, password, server, port, remark] = match;
+			return {
+				password: decodeURIComponent(password),
+				server,
+				port: parseInt(port),
+				remark: remark ? decodeURIComponent(remark) : `AnyTLS-${server}`,
+				skipCertVerify: true,
+				sni: server,
+				fingerprint: 'chrome',
+				security: '',
+				publicKey: '',
+				shortId: '',
+				raw: link
+			};
+		} catch (e2) {
+			console.error('简单解析也失败:', e2);
+			return null;
+		}
 	}
 }
 
-// 将 AnyTLS 节点转换为 Clash Meta YAML 格式（参考 sub2clash-main）
+// 将 AnyTLS 节点转换为 Clash YAML 格式（单行 Flow 格式）
 function anyTLSToClashYAML(node) {
-	// 参考: sub2clash-main/model/proxy/anytls.go
-	// 基础配置（必需字段）
-	const config = {
-		name: node.remark,
-		type: 'anytls',
-		server: node.server,
-		port: node.port,
-		password: node.password
-	};
+	// 使用单行 Flow 格式（花括号），与 Clash Meta 标准一致
+	// 参考: { name: 节点名, type: anytls, server: 1.2.3.4, port: 443, ... }
 
-	// 可选字段（omitempty）
-	if (node.sni) {
-		config.sni = node.sni;
-	}
-	if (node.skipCertVerify) {
-		config['skip-cert-verify'] = true;
-	}
-	// 默认启用 UDP
-	config.udp = true;
+	// 构建配置项数组
+	const parts = [
+		`name: ${node.remark}`,
+		`type: anytls`,
+		`server: ${node.server}`,
+		`port: ${node.port}`,
+		`password: ${node.password}`,
+		`client-fingerprint: ${node.fingerprint}`,
+		`udp: true`,
+		`alpn: [h2, http/1.1]`,
+		`sni: ${node.sni}`,
+		`skip-cert-verify: ${node.skipCertVerify}`
+	];
 
-	// 将对象转为 YAML Flow 格式
-	const pairs = [];
-	for (const [key, value] of Object.entries(config)) {
-		if (typeof value === 'string') {
-			pairs.push(`${key}: ${value}`);
-		} else if (typeof value === 'boolean') {
-			pairs.push(`${key}: ${value}`);
-		} else if (typeof value === 'number') {
-			pairs.push(`${key}: ${value}`);
+	// 如果是 Any-Reality，添加 reality-opts
+	if (node.security === 'reality' && node.publicKey) {
+		let realityParts = [`public-key: ${node.publicKey}`];
+		if (node.shortId) {
+			realityParts.push(`short-id: ${node.shortId}`);
 		}
+		parts.push(`reality-opts: { ${realityParts.join(', ')} }`);
 	}
 
-	return `  - { ${pairs.join(', ')} }`;
+	return `  - { ${parts.join(', ')} }`;
 }
 
 function clashFix(content) {
