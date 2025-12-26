@@ -247,15 +247,23 @@ show_traffic() {
     local total=$(echo "$traffic" | grep -oP '"total":\s*\K[0-9]+' | head -1)
     local remaining=$(echo "$traffic" | grep -oP '"remaining":\s*\K-?[0-9]+')
     
-    # 转换为可读格式
+    # 转换为可读格式 (纯bash，不依赖bc)
     format_bytes() {
         local bytes=$1
-        if [ $bytes -gt 1073741824 ]; then
-            echo "$(echo "scale=2; $bytes/1073741824" | bc) GB"
-        elif [ $bytes -gt 1048576 ]; then
-            echo "$(echo "scale=2; $bytes/1048576" | bc) MB"
-        elif [ $bytes -gt 1024 ]; then
-            echo "$(echo "scale=2; $bytes/1024" | bc) KB"
+        [ -z "$bytes" ] && bytes=0
+        
+        if [ $bytes -ge 1073741824 ]; then
+            local gb=$((bytes / 1073741824))
+            local mb=$(((bytes % 1073741824) * 100 / 1073741824))
+            printf "%d.%02d GB" $gb $mb
+        elif [ $bytes -ge 1048576 ]; then
+            local mb=$((bytes / 1048576))
+            local kb=$(((bytes % 1048576) * 100 / 1048576))
+            printf "%d.%02d MB" $mb $kb
+        elif [ $bytes -ge 1024 ]; then
+            local kb=$((bytes / 1024))
+            local b=$(((bytes % 1024) * 100 / 1024))
+            printf "%d.%02d KB" $kb $b
         else
             echo "$bytes B"
         fi
