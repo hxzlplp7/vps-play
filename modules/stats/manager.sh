@@ -333,6 +333,8 @@ start_api_server() {
         fi
     fi
     
+    fi
+    
     local pid=$!
     echo $pid > "$STATS_PID"
     echo "$port" > "$STATS_DIR/api_port"
@@ -340,12 +342,62 @@ start_api_server() {
     sleep 2
     if kill -0 $pid 2>/dev/null; then
         echo -e "${Info} API 服务已启动 (PID: $pid)"
-        echo -e "${Tip} API 地址: http://$(curl -s4 ip.sb 2>/dev/null || echo "YOUR_IP"):$port/stats"
+        local api_url="http://$(curl -s4 ip.sb 2>/dev/null || echo "YOUR_IP"):$port/stats"
+        echo -e "${Tip} API 地址: $api_url"
+        
+        # 检查是否需要启动 Argo (开机自启或交互选择)
+        local argo_enabled=0
+        if [ -f "$STATS_DIR/argo_enabled" ]; then
+            argo_enabled=1
+        elif [ -t 0 ]; then
+             echo -e ""
+             echo -e "${Info} 是否启动 Argo 临时隧道 (穿透内网/Cloudflare)? [y/N]"
+             read -p "请选择: " argo_choice
+             if [[ "$argo_choice" == "y" || "$argo_choice" == "Y" ]]; then
+                 argo_enabled=1
+                 touch "$STATS_DIR/argo_enabled"
+             fi
+        fi
+
+        if [ "$argo_enabled" -eq 1 ]; then
+            start_argo_tunnel "$port"
+        fi
     else
         echo -e "${Error} API 服务启动失败"
         rm -f "$STATS_PID"
     fi
 }
+
+start_argo_tunnel() {
+    local port=$1
+    local cloudflared_bin="$HOME/.vps-play/app/cloudflared"
+    
+    if ! [ -f "$cloudflared_bin" ]; then
+        echo -e "${Info} 未找到 cloudflared，尝试安装..."
+        bash <(curl -sL https://raw.githubusercontent.com/hxzlplp7/vps-play/main/modules/argo/manager.sh) install
+    fi
+    
+    if [ -f "$cloudflared_bin" ]; then
+        echo -e "${Info} 启动 Argo 隧道..."
+        nohup "$cloudflared_bin" tunnel --url "http://127.0.0.1:$port" --no-autoupdate > "$STATS_DIR/argo.log" 2>&1 &
+        local argo_pid=$!
+        echo $argo_pid > "$STATS_DIR/argo.pid"
+        
+        echo -e "${Info} 等待获取域名..."
+        sleep 5
+        local argo_domain=$(grep -oE "https://[a-zA-Z0-9-]+\.trycloudflare\.com" "$STATS_DIR/argo.log" | head -1)
+        
+        if [ -n "$argo_domain" ]; then
+            echo -e "${Success} Argo 隧道启动成功!"
+            echo -e "${Tip} Argo API 地址: ${Cyan}${argo_domain}/stats${Reset}"
+        else
+            echo -e "${Warning} 获取域名超时，请稍后查看日志: $STATS_DIR/argo.log"
+        fi
+    else
+        echo -e "${Error} cloudflared 安装失败"
+    fi
+}
+
 
 # Python HTTP 服务器 (优先使用)
 start_python_server() {
@@ -444,6 +496,17 @@ stop_api_server() {
             pkill -P $pid 2>/dev/null
         fi
         rm -f "$STATS_PID"
+        
+        if [ -f "$STATS_DIR/argo.pid" ]; then
+            kill $(cat "$STATS_DIR/argo.pid") 2>/dev/null
+            rm -f "$STATS_DIR/argo.pid"
+        fi
+        
+        # 仅在交互模式下移除 Argo 启用标志，以便开机自启能记住设置
+        if [ -t 0 ]; then
+             rm -f "$STATS_DIR/argo_enabled"
+        fi
+        
         echo -e "${Info} API 服务已停止"
     else
         echo -e "${Warning} API 服务未运行"
