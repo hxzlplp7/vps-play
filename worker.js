@@ -506,10 +506,24 @@ function parseAnyTLSLink(link) {
 	}
 }
 
-// 将 AnyTLS 节点转换为 Clash YAML 格式（单行 Flow 格式）
+// 将 AnyTLS 节点转换为 Clash YAML 格式（多行 Block 格式）
 function anyTLSToClashYAML(node) {
-	// 添加 sni 和 alpn 字段以确保 Clash Meta 能正确识别
-	return `  - {name: ${node.remark}, type: anytls, server: ${node.server}, port: ${node.port}, password: "${node.password}", sni: ${node.server}, alpn: [h2, http/1.1], client-fingerprint: chrome, udp: true, idle-session-check-interval: 30, idle-session-timeout: 30, min-idle-session: 0, skip-cert-verify: true}`;
+	// 使用多行Block格式，Clash Meta 需要这种格式才能识别
+	return `  - name: "${node.remark}"
+    type: anytls
+    server: ${node.server}
+    port: ${node.port}
+    password: "${node.password}"
+    client-fingerprint: chrome
+    udp: true
+    idle-session-check-interval: 30
+    idle-session-timeout: 30
+    min-idle-session: 0
+    sni: "${node.server}"
+    alpn:
+      - h2
+      - http/1.1
+    skip-cert-verify: true`;
 }
 
 function clashFix(content) {
@@ -556,14 +570,19 @@ function addAnyTLSToClash(clashYAML, anyTLSNodes) {
 			return clashYAML;
 		}
 
-		// 生成 AnyTLS 节点的 YAML（单行格式，无需分割）
-		const anyTLSLines = anyTLSNodes.map(node => anyTLSToClashYAML(node));
-
-		// 在 proxies: 后逐行插入 AnyTLS 节点（从后往前插入保持顺序）
-		for (let i = anyTLSLines.length - 1; i >= 0; i--) {
-			lines.splice(proxiesIndex + 1, 0, anyTLSLines[i]);
-		}
-
+	// 生成 AnyTLS 节点的 YAML 并分割成行数组（多行Block格式需要分割）
+	const anyTLSLines = [];
+	for (const node of anyTLSNodes) {
+		const nodeYAML = anyTLSToClashYAML(node);
+		// 将多行 YAML 分割成单独的行
+		anyTLSLines.push(...nodeYAML.split('\n'));
+	}
+	
+	// 在 proxies: 后逐行插入 AnyTLS 节点（从后往前插入保持顺序）
+	for (let i = anyTLSLines.length - 1; i >= 0; i--) {
+		lines.splice(proxiesIndex + 1, 0, anyTLSLines[i]);
+	}
+	
 		const result = lines.join('\n');
 		console.log(`成功添加 ${anyTLSNodes.length} 个 AnyTLS 节点到 Clash 配置`);
 		return result;
