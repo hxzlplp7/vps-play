@@ -606,10 +606,10 @@ function clashFix(content) {
 // 将 AnyTLS 节点添加到 Clash YAML 配置中
 function addAnyTLSToClash(clashYAML, anyTLSNodes) {
 	try {
-		// 找到 proxies: 的位置
 		const lines = clashYAML.split('\n');
 		let proxiesIndex = -1;
 
+		// 找到 proxies: 的位置
 		for (let i = 0; i < lines.length; i++) {
 			if (lines[i].trim() === 'proxies:') {
 				proxiesIndex = i;
@@ -622,21 +622,72 @@ function addAnyTLSToClash(clashYAML, anyTLSNodes) {
 			return clashYAML;
 		}
 
-		// 生成 AnyTLS 节点的 YAML 并分割成行数组（多行Block格式需要分割）
+		// 收集 AnyTLS 节点名称
+		const anyTLSNames = anyTLSNodes.map(node => node.remark);
+
+		// 生成 AnyTLS 节点的 YAML
 		const anyTLSLines = [];
 		for (const node of anyTLSNodes) {
-			const nodeYAML = anyTLSToClashYAML(node);
-			// 将多行 YAML 分割成单独的行
-			anyTLSLines.push(...nodeYAML.split('\n'));
+			anyTLSLines.push(anyTLSToClashYAML(node));
 		}
 
-		// 在 proxies: 后逐行插入 AnyTLS 节点（从后往前插入保持顺序）
+		// 在 proxies: 后插入 AnyTLS 节点
 		for (let i = anyTLSLines.length - 1; i >= 0; i--) {
 			lines.splice(proxiesIndex + 1, 0, anyTLSLines[i]);
 		}
 
+		// 将 AnyTLS 节点名称添加到 proxy-groups 中
+		// 查找所有 proxy-groups 中的 proxies 列表并添加节点
+		let inProxyGroups = false;
+		let inProxiesList = false;
+		let indentLevel = 0;
+
+		for (let i = 0; i < lines.length; i++) {
+			const line = lines[i];
+			const trimmed = line.trim();
+
+			// 检测 proxy-groups: 开始
+			if (trimmed === 'proxy-groups:') {
+				inProxyGroups = true;
+				continue;
+			}
+
+			// 检测离开 proxy-groups (遇到同级别的其他key)
+			if (inProxyGroups && !line.startsWith(' ') && !line.startsWith('\t') && trimmed !== '' && !trimmed.startsWith('#')) {
+				if (!trimmed.startsWith('-')) {
+					inProxyGroups = false;
+					continue;
+				}
+			}
+
+			// 在 proxy-groups 内，检测 proxies: 列表
+			if (inProxyGroups && trimmed === 'proxies:') {
+				inProxiesList = true;
+				indentLevel = line.search(/\S/);
+				continue;
+			}
+
+			// 在 proxies 列表内，找到第一个节点后插入 AnyTLS 节点
+			if (inProxiesList && trimmed.startsWith('- ')) {
+				const currentIndent = line.search(/\S/);
+				if (currentIndent > indentLevel) {
+					// 在第一个节点之前插入所有 AnyTLS 节点名称
+					const insertIndent = ' '.repeat(currentIndent);
+					for (let j = anyTLSNames.length - 1; j >= 0; j--) {
+						lines.splice(i, 0, `${insertIndent}- ${anyTLSNames[j]}`);
+					}
+					inProxiesList = false;
+				}
+			}
+
+			// 离开 proxies 列表
+			if (inProxiesList && !trimmed.startsWith('-') && trimmed !== '') {
+				inProxiesList = false;
+			}
+		}
+
 		const result = lines.join('\n');
-		console.log(`成功添加 ${anyTLSNodes.length} 个 AnyTLS 节点到 Clash 配置`);
+		console.log(`成功添加 ${anyTLSNodes.length} 个 AnyTLS 节点到 Clash 配置和分组`);
 		return result;
 	} catch (e) {
 		console.error('添加 AnyTLS 节点到 Clash 配置失败:', e);
