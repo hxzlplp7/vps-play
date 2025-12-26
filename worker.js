@@ -1,4 +1,4 @@
-
+﻿
 // 部署完成后在网址后面加上这个，获取自建节点和机场聚合节点，/?token=auto或/auto或
 
 let mytoken = 'auto';
@@ -565,11 +565,17 @@ function addAnyTLSToClash(clashYAML, anyTLSNodes) {
 			return clashYAML;
 		}
 
-		// 生成 AnyTLS 节点的 YAML
-		const anyTLSYAML = anyTLSNodes.map(node => anyTLSToClashYAML(node)).join('\n');
-
-		// 在 proxies: 后插入 AnyTLS 节点
-		lines.splice(proxiesIndex + 1, 0, anyTLSYAML);
+	// 生成 AnyTLS 节点的 YAML 并分割成行数组
+	const anyTLSLines = [];
+	for (const node of anyTLSNodes) {
+		const nodeYAML = anyTLSToClashYAML(node);
+		anyTLSLines.push(...nodeYAML.split('\n'));
+	}
+	
+	// 在 proxies: 后逐行插入 AnyTLS 节点（从后往前插入保持顺序）
+	for (let i = anyTLSLines.length - 1; i >= 0; i--) {
+		lines.splice(proxiesIndex + 1, 0, anyTLSLines[i]);
+	}
 
 		const result = lines.join('\n');
 		console.log(`成功添加 ${anyTLSNodes.length} 个 AnyTLS 节点到 Clash 配置`);
