@@ -307,30 +307,45 @@ start_api_server() {
     # 这里的技巧是：我们cd到STATS_DIR目录启动服务，这样 /stats 就对应了 STATS_DIR/stats 文件
     
     local runner_script="$STATS_DIR/api_runner.sh"
+    # 生成主 runner 脚本，负责启动 HTTP 服务和数据更新循环
     cat > "$runner_script" << EOF
 #!/bin/bash
-cd "$STATS_DIR"
+STATS_DIR="$STATS_DIR"
+MANAGER_SCRIPT="$0"
+
+cd "\$STATS_DIR"
+
+# 启动数据更新循环 (后台)
+while true; do
+    bash "\$MANAGER_SCRIPT" update >/dev/null 2>&1
+    sleep 60
+done &
+UPDATER_PID=\$!
+
+# 启动 HTTP 服务循环 (前台阻塞)
 while true; do
     if command -v python3 &>/dev/null; then
         python3 -m http.server $port > /dev/null 2>&1
     elif command -v python &>/dev/null; then
         python -m http.server $port > /dev/null 2>&1
     elif command -v busybox &>/dev/null; then
-        busybox httpd -f -p $port -h "$STATS_DIR" > /dev/null 2>&1
+        busybox httpd -f -p $port -h "\$STATS_DIR" > /dev/null 2>&1
     else
-        # 最后的兜底：用 nc 模拟一个极简的文件服务器 (如果不幸没有 python)
         echo -e "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n" | cat - stats | nc -l -p $port -q 1
     fi
     sleep 2
 done
+
+# 清理后台更新进程
+kill \$UPDATER_PID 2>/dev/null
 EOF
     chmod +x "$runner_script"
     
-    # 添加定时任务，每分钟刷新一次数据
-    # 先清除旧任务
-    (crontab -l 2>/dev/null | grep -v "modules/stats/manager.sh update") | crontab -
-    # 添加新任务
-    (crontab -l 2>/dev/null; echo "* * * * * bash $HOME/vps-play/modules/stats/manager.sh update >/dev/null 2>&1") | crontab -
+    # 尝试使用 crontab (如果可用) 作为双重保障，但如果失败也不阻塞
+    if command -v crontab &>/dev/null; then
+        (crontab -l 2>/dev/null | grep -v "modules/stats/manager.sh update") | crontab - 2>/dev/null
+        (crontab -l 2>/dev/null; echo "* * * * * bash $HOME/vps-play/modules/stats/manager.sh update >/dev/null 2>&1") | crontab - 2>/dev/null
+    fi
 
     # 启动 Runner
     nohup bash "$runner_script" > "$STATS_LOG" 2>&1 &
