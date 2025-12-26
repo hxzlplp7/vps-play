@@ -1100,11 +1100,12 @@ install_combo() {
     echo -e " ${Green}4.${Reset} Shadowsocks"
     echo -e " ${Green}5.${Reset} Trojan"
     echo -e " ${Green}6.${Reset} AnyTLS"
+    echo -e " ${Green}7.${Reset} Any-Reality"
     echo -e ""
-    echo -e " ${Cyan}示例: 1,3,6 表示安装 Hysteria2 + VLESS + AnyTLS${Reset}"
+    echo -e " ${Cyan}示例: 1,3,7 表示安装 Hysteria2 + VLESS + Any-Reality${Reset}"
     echo -e ""
     
-    read -p "请选择 [1-6]: " combo_choice
+    read -p "请选择 [1-7]: " combo_choice
     
     if [ -z "$combo_choice" ]; then
         echo -e "${Error} 未选择任何协议"
@@ -1120,6 +1121,7 @@ install_combo() {
     local install_ss=false
     local install_trojan=false
     local install_anytls=false
+    local install_any_reality=false
     
     for p in "${protocols[@]}"; do
         case "$(echo $p | tr -d ' ')" in
@@ -1129,13 +1131,14 @@ install_combo() {
             4) install_ss=true ;;
             5) install_trojan=true ;;
             6) install_anytls=true ;;
+            7) install_any_reality=true ;;
         esac
     done
     
-    # AnyTLS 版本检查
-    if [ "$install_anytls" = true ]; then
+    # AnyTLS/Any-Reality 版本检查
+    if [ "$install_anytls" = true ] || [ "$install_any_reality" = true ]; then
         if ! version_ge "$(get_version)" "1.12.0"; then
-            echo -e "${Info} AnyTLS 需要升级 sing-box 到 1.12.0+，正在自动升级..."
+            echo -e "${Info} AnyTLS/Any-Reality 需要升级 sing-box 到 1.12.0+，正在自动升级..."
             download_singbox "1.12.0"
         fi
     fi
@@ -1169,6 +1172,7 @@ install_combo() {
     local ss_port=""
     local trojan_port=""
     local anytls_port=""
+    local ar_port=""
     
     if [ "$port_mode" = "2" ]; then
         # 手动指定端口
@@ -1204,6 +1208,11 @@ install_combo() {
             read -p "AnyTLS 端口: " anytls_port
             [ -z "$anytls_port" ] && anytls_port=$(shuf -i 10000-65535 -n 1)
         fi
+        
+        if [ "$install_any_reality" = true ]; then
+            read -p "Any-Reality 端口: " ar_port
+            [ -z "$ar_port" ] && ar_port=$(shuf -i 10000-65535 -n 1)
+        fi
     else
         # 自动分配
         local base_port=$(shuf -i 10000-50000 -n 1)
@@ -1213,12 +1222,16 @@ install_combo() {
         [ "$install_ss" = true ] && ss_port=$((base_port + 3))
         [ "$install_trojan" = true ] && trojan_port=$((base_port + 4))
         [ "$install_anytls" = true ] && anytls_port=$((base_port + 5))
+        [ "$install_any_reality" = true ] && ar_port=$((base_port + 6))
     fi
     
     echo -e ""
     echo -e "${Info} 端口分配:"
     [ -n "$hy2_port" ] && echo -e " Hysteria2: ${Cyan}${hy2_port}${Reset}"
-    [ -n "$tuic_port" ] && echo -e " TUIC: ${Cyan}${tuic_port}${Reset}"
+    [ -n "$ss_port" ] && echo -e " Shadowsocks: ${Cyan}${ss_port}${Reset}"
+    [ -n "$trojan_port" ] && echo -e " Trojan: ${Cyan}${trojan_port}${Reset}"
+    [ -n "$anytls_port" ] && echo -e " AnyTLS: ${Cyan}${anytls_port}${Reset}"
+    [ -n "$ar_port" ] && echo -e " Any-Reality: ${Cyan}${ar_port}${Reset}"
     [ -n "$vless_port" ] && echo -e " VLESS: ${Cyan}${vless_port}${Reset}"
     [ -n "$ss_port" ] && echo -e " SS: ${Cyan}${ss_port}${Reset}"
     [ -n "$trojan_port" ] && echo -e " Trojan: ${Cyan}${trojan_port}${Reset}"
@@ -1461,6 +1474,62 @@ SNI: ${cert_domain}
     local out_json="{\"type\":\"anytls\",\"tag\":\"anytls-out\",\"server\":\"$server_ip\",\"server_port\":$anytls_port,\"password\":\"$password\",\"tls\":{\"enabled\":true,\"server_name\":\"$cert_domain\",\"insecure\":true}}"
     links="${links}
 ${anytls_link}"
+    fi
+
+    # Any-Reality 配置
+    if [ "$install_any_reality" = true ]; then
+        # 生成/复用 Reality 密钥
+        local keypair=$($SINGBOX_BIN generate reality-keypair 2>/dev/null)
+        local private_key=$(echo "$keypair" | grep -i "privatekey" | awk '{print $2}')
+        local public_key=$(echo "$keypair" | grep -i "publickey" | awk '{print $2}')
+        local short_id=$(head /dev/urandom | tr -dc a-f0-9 | head -c 8)
+        
+        local ar_dest="www.apple.com"
+        local ar_server_name="www.apple.com"
+        local ar_mixed_port=$(shuf -i 20000-60000 -n 1)
+        
+        [ -n "$inbounds" ] && inbounds="${inbounds},"
+        inbounds="${inbounds}
+    {
+      \"type\": \"anytls\",
+      \"tag\": \"any-reality-in\",
+      \"listen\": \"::\",
+      \"listen_port\": ${ar_port},
+      \"users\": [{\"password\": \"${password}\"}],
+      \"tls\": {
+        \"enabled\": true,
+        \"server_name\": \"${ar_server_name}\",
+        \"reality\": {
+          \"enabled\": true,
+          \"handshake\": {
+            \"server\": \"${ar_dest}\",
+            \"server_port\": 443
+          },
+          \"private_key\": \"${private_key}\",
+          \"short_id\": [\"${short_id}\"]
+        }
+      },
+      \"detour\": \"mixed-in-ar\"
+    },
+    {
+      \"type\": \"mixed\",
+      \"tag\": \"mixed-in-ar\",
+      \"listen\": \"127.0.0.1\",
+      \"listen_port\": ${ar_mixed_port}
+    }"
+
+        node_info="${node_info}
+[Any-Reality]
+端口: ${ar_port}
+密码: ${password}
+SNI: ${ar_server_name}
+Short ID: ${short_id}
+Public Key: ${public_key}
+说明: 指纹(fp)建议使用 chrome"
+
+        local ar_link="anytls://${password}@${server_ip}:${ar_port}?security=reality&sni=${ar_server_name}&fp=chrome&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#Any-Reality-${server_ip}"
+        links="${links}
+${ar_link}"
     fi
     
     # 生成完整配置
