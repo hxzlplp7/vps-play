@@ -242,10 +242,50 @@ get_total_traffic() {
   "interface": "$interface",
   "time": $(date +%s)
 }
+}
 EOF
 }
 
 
+
+# ==================== 安装 HTTP 工具 ====================
+install_http_tool() {
+    echo -e "${Info} 尝试安装 HTTP 服务器工具..."
+    
+    # 检测包管理器并安装
+    if command -v apt-get &>/dev/null; then
+        echo -e "${Info} 检测到 apt，尝试安装 netcat..."
+        apt-get update -qq 2>/dev/null
+        apt-get install -y netcat-openbsd 2>/dev/null || apt-get install -y netcat 2>/dev/null
+    elif command -v yum &>/dev/null; then
+        echo -e "${Info} 检测到 yum，尝试安装 ncat..."
+        yum install -y nmap-ncat 2>/dev/null || yum install -y nc 2>/dev/null
+    elif command -v dnf &>/dev/null; then
+        echo -e "${Info} 检测到 dnf，尝试安装 ncat..."
+        dnf install -y nmap-ncat 2>/dev/null
+    elif command -v apk &>/dev/null; then
+        echo -e "${Info} 检测到 apk，尝试安装 netcat..."
+        apk add --no-cache netcat-openbsd 2>/dev/null
+    elif command -v pacman &>/dev/null; then
+        echo -e "${Info} 检测到 pacman，尝试安装 socat..."
+        pacman -S --noconfirm socat 2>/dev/null
+    elif command -v pkg &>/dev/null; then
+        # FreeBSD
+        echo -e "${Info} 检测到 pkg (FreeBSD)，尝试安装 socat..."
+        pkg install -y socat 2>/dev/null
+    else
+        echo -e "${Warning} 未检测到支持的包管理器"
+        return 1
+    fi
+    
+    # 验证安装
+    if command -v nc &>/dev/null || command -v ncat &>/dev/null || command -v socat &>/dev/null; then
+        echo -e "${Info} 工具安装成功"
+        return 0
+    else
+        return 1
+    fi
+}
 
 # ==================== HTTP API 服务 ====================
 start_api_server() {
@@ -271,9 +311,26 @@ start_api_server() {
     elif command -v ncat &>/dev/null; then
         start_ncat_server "$port" &
     else
-        echo -e "${Error} 没有找到可用的 HTTP 服务器工具"
-        echo -e "${Tip} 请安装以下任一工具: python3, socat, nc (netcat)"
-        return 1
+        echo -e "${Warning} 没有找到可用的 HTTP 服务器工具，尝试自动安装..."
+        
+        # 尝试安装 netcat
+        if install_http_tool; then
+            # 安装成功后重试
+            if command -v nc &>/dev/null; then
+                start_nc_server "$port" &
+            elif command -v ncat &>/dev/null; then
+                start_ncat_server "$port" &
+            elif command -v socat &>/dev/null; then
+                start_socat_server "$port" &
+            else
+                echo -e "${Error} 安装后仍无法找到可用工具"
+                return 1
+            fi
+        else
+            echo -e "${Error} 自动安装失败"
+            echo -e "${Tip} 请手动安装: apt install netcat-openbsd 或 yum install nmap-ncat"
+            return 1
+        fi
     fi
     
     local pid=$!
