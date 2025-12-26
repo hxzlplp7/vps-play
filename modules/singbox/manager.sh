@@ -382,6 +382,7 @@ ${exp_config}  "inbounds": [
       "listen_port": $port,
       "users": [
         {
+          "name": "user",
           "uuid": "$uuid",
           "password": "$password"
         }
@@ -858,6 +859,7 @@ hysteria2://${password}@${server_ip}:${hy2_port}?sni=${CERT_DOMAIN:-www.bing.com
       \"listen_port\": ${tuic_port},
       \"users\": [
         {
+          \"name\": \"user\",
           \"uuid\": \"${uuid}\",
           \"password\": \"${password}\"
         }
@@ -901,6 +903,7 @@ tuic://${uuid}:${password}@${server_ip}:${tuic_port}?sni=${CERT_DOMAIN:-www.bing
       \"listen_port\": ${vless_port},
       \"users\": [
         {
+          \"name\": \"user\",
           \"uuid\": \"${uuid}\",
           \"flow\": \"xtls-rprx-vision\"
         }
