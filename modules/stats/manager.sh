@@ -36,97 +36,114 @@ DEFAULT_TOTAL=107374182400  # 100GB
 TRAFFIC_TOTAL=$DEFAULT_TOTAL
 TRAFFIC_EXPIRE=4102329600   # 2099-12-31
 
-# ==================== 获取 sing-box 流量 ====================
-get_singbox_traffic() {
-    local api_port=$(cat "$HOME/.vps-play/singbox/api_port" 2>/dev/null)
-    if [ -z "$api_port" ]; then
-        echo '{"upload":0,"download":0,"total":0}'
-        return
+# ==================== 获取 VPS 系统网络流量 ====================
+# 从 /proc/net/dev 或 /sys/class/net 读取网络接口流量
+
+get_primary_interface() {
+    # 获取主要网络接口 (排除 lo, docker, veth 等)
+    local iface=""
+    
+    # 尝试从默认路由获取
+    iface=$(ip route 2>/dev/null | grep default | awk '{print $5}' | head -1)
+    
+    # 如果没有，尝试常见接口名
+    if [ -z "$iface" ]; then
+        for name in eth0 ens3 ens18 enp0s3 venet0 em0; do
+            if [ -d "/sys/class/net/$name" ]; then
+                iface="$name"
+                break
+            fi
+        done
     fi
     
-    # 调用 sing-box clash api 获取流量
-    local response=$(curl -s "http://127.0.0.1:${api_port}/traffic" 2>/dev/null | head -1)
-    
-    if [ -n "$response" ]; then
-        # 解析流量数据
-        local up=$(echo "$response" | grep -oP '"up":\s*\K[0-9]+' | head -1)
-        local down=$(echo "$response" | grep -oP '"down":\s*\K[0-9]+' | head -1)
-        up=${up:-0}
-        down=${down:-0}
-        echo "{\"upload\":$up,\"download\":$down,\"total\":$((up+down))}"
-    else
-        # 从保存的文件读取
-        if [ -f "$STATS_DATA" ]; then
-            cat "$STATS_DATA"
-        else
-            echo '{"upload":0,"download":0,"total":0}'
-        fi
+    # 还是没有就取第一个非 lo 接口
+    if [ -z "$iface" ]; then
+        iface=$(ls /sys/class/net/ 2>/dev/null | grep -v lo | head -1)
     fi
+    
+    echo "$iface"
 }
 
-# ==================== 获取 xray 流量 ====================
-get_xray_traffic() {
-    local api_port=$(cat "$HOME/.vps-play/argo/api_port" 2>/dev/null)
-    if [ -z "$api_port" ]; then
-        echo '{"upload":0,"download":0,"total":0}'
+get_interface_traffic() {
+    local iface=$1
+    
+    if [ -z "$iface" ]; then
+        echo "0 0"
         return
     fi
     
-    # 调用 xray api 获取流量 (需要配置 api 入站)
-    local response=$(curl -s "http://127.0.0.1:${api_port}/stats/query" \
-        -H "Content-Type: application/json" \
-        -d '{"reset": false}' 2>/dev/null)
+    local rx_bytes=0
+    local tx_bytes=0
     
-    if [ -n "$response" ]; then
-        local up=$(echo "$response" | grep -oP '"uplink":\s*\K[0-9]+' | awk '{sum+=$1}END{print sum}')
-        local down=$(echo "$response" | grep -oP '"downlink":\s*\K[0-9]+' | awk '{sum+=$1}END{print sum}')
-        up=${up:-0}
-        down=${down:-0}
-        echo "{\"upload\":$up,\"download\":$down,\"total\":$((up+down))}"
-    else
-        echo '{"upload":0,"download":0,"total":0}'
+    # 方法1: 从 /sys/class/net 读取 (更准确)
+    if [ -f "/sys/class/net/$iface/statistics/rx_bytes" ]; then
+        rx_bytes=$(cat "/sys/class/net/$iface/statistics/rx_bytes" 2>/dev/null || echo 0)
+        tx_bytes=$(cat "/sys/class/net/$iface/statistics/tx_bytes" 2>/dev/null || echo 0)
+    # 方法2: 从 /proc/net/dev 读取
+    elif [ -f "/proc/net/dev" ]; then
+        local line=$(grep "$iface:" /proc/net/dev 2>/dev/null)
+        if [ -n "$line" ]; then
+            rx_bytes=$(echo "$line" | awk '{print $2}')
+            tx_bytes=$(echo "$line" | awk '{print $10}')
+        fi
+    # 方法3: FreeBSD 系统使用 netstat
+    elif command -v netstat &>/dev/null; then
+        local stats=$(netstat -ibn 2>/dev/null | grep -E "^$iface" | head -1)
+        if [ -n "$stats" ]; then
+            rx_bytes=$(echo "$stats" | awk '{print $7}')
+            tx_bytes=$(echo "$stats" | awk '{print $10}')
+        fi
     fi
+    
+    echo "$rx_bytes $tx_bytes"
+}
+
+get_vps_traffic() {
+    local iface=$(get_primary_interface)
+    local traffic=$(get_interface_traffic "$iface")
+    
+    local rx_bytes=$(echo "$traffic" | awk '{print $1}')
+    local tx_bytes=$(echo "$traffic" | awk '{print $2}')
+    
+    rx_bytes=${rx_bytes:-0}
+    tx_bytes=${tx_bytes:-0}
+    
+    echo "{\"interface\":\"$iface\",\"download\":$rx_bytes,\"upload\":$tx_bytes,\"total\":$((rx_bytes+tx_bytes))}"
 }
 
 # ==================== 获取汇总流量 ====================
 get_total_traffic() {
-    local singbox_traffic=$(get_singbox_traffic)
-    local xray_traffic=$(get_xray_traffic)
+    local vps_traffic=$(get_vps_traffic)
     
-    local sb_up=$(echo "$singbox_traffic" | grep -oP '"upload":\s*\K[0-9]+')
-    local sb_down=$(echo "$singbox_traffic" | grep -oP '"download":\s*\K[0-9]+')
-    local xr_up=$(echo "$xray_traffic" | grep -oP '"upload":\s*\K[0-9]+')
-    local xr_down=$(echo "$xray_traffic" | grep -oP '"download":\s*\K[0-9]+')
+    local download=$(echo "$vps_traffic" | grep -oP '"download":\s*\K[0-9]+')
+    local upload=$(echo "$vps_traffic" | grep -oP '"upload":\s*\K[0-9]+')
+    local interface=$(echo "$vps_traffic" | grep -oP '"interface":\s*"\K[^"]+')
     
-    sb_up=${sb_up:-0}
-    sb_down=${sb_down:-0}
-    xr_up=${xr_up:-0}
-    xr_down=${xr_down:-0}
+    download=${download:-0}
+    upload=${upload:-0}
     
-    local total_up=$((sb_up + xr_up))
-    local total_down=$((sb_down + xr_down))
-    local total_used=$((total_up + total_down))
+    local total_used=$((upload + download))
     
     # 读取配额配置
     if [ -f "$STATS_CONF" ]; then
-        TRAFFIC_TOTAL=$(grep -oP '"total":\s*\K[0-9]+' "$STATS_CONF" || echo $DEFAULT_TOTAL)
-        TRAFFIC_EXPIRE=$(grep -oP '"expire":\s*\K[0-9]+' "$STATS_CONF" || echo 4102329600)
+        TRAFFIC_TOTAL=$(grep -oP '"total":\s*\K[0-9]+' "$STATS_CONF" 2>/dev/null || echo $DEFAULT_TOTAL)
+        TRAFFIC_EXPIRE=$(grep -oP '"expire":\s*\K[0-9]+' "$STATS_CONF" 2>/dev/null || echo 4102329600)
     fi
     
     cat <<EOF
 {
-  "upload": $total_up,
-  "download": $total_down,
+  "upload": $upload,
+  "download": $download,
   "used": $total_used,
   "total": $TRAFFIC_TOTAL,
   "remaining": $((TRAFFIC_TOTAL - total_used)),
   "expire": $TRAFFIC_EXPIRE,
-  "singbox": $singbox_traffic,
-  "xray": $xray_traffic,
+  "interface": "$interface",
   "time": $(date +%s)
 }
 EOF
 }
+
 
 # ==================== HTTP API 服务 ====================
 start_api_server() {

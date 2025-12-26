@@ -41,46 +41,11 @@ SINGBOX_REPO="https://github.com/SagerNet/sing-box"
 
 mkdir -p "$SINGBOX_DIR" "$CERT_DIR" "$CONFIG_DIR"
 
-# 检测 sing-box 是否支持 clash_api
-check_clash_api_support() {
-    if [ ! -f "$SINGBOX_BIN" ]; then
-        echo "false"
-        return
-    fi
-    # 创建一个测试配置来检测是否支持 clash_api
-    local test_conf=$(mktemp)
-    cat > "$test_conf" << 'TESTEOF'
-{
-  "experimental": {
-    "clash_api": {
-      "external_controller": "127.0.0.1:9999"
-    }
-  }
-}
-TESTEOF
-    if "$SINGBOX_BIN" check -c "$test_conf" 2>/dev/null; then
-        rm -f "$test_conf"
-        echo "true"
-    else
-        rm -f "$test_conf"
-        echo "false"
-    fi
-}
-
-# 生成 experimental 配置块 (如果支持)
+# 生成 experimental 配置块 (可选，目前不使用)
+# 流量统计已改为读取 VPS 系统网络接口流量
 get_experimental_config() {
-    if [ "$(check_clash_api_support)" = "true" ]; then
-        cat << EOF
-  "experimental": {
-    "clash_api": {
-      "external_controller": "127.0.0.1:$SINGBOX_API_PORT",
-      "secret": ""
-    }
-  },
-EOF
-        # 保存 API 端口
-        echo "$SINGBOX_API_PORT" > "$SINGBOX_DIR/api_port"
-    fi
+    # 返回空，不添加 experimental 配置
+    echo ""
 }
 
 # ==================== 系统检测 ====================
