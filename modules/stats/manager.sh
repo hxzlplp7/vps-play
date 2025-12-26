@@ -128,19 +128,80 @@ get_interface_traffic() {
     echo "$rx_bytes $tx_bytes"
 }
 
-get_vps_traffic() {
+# 检测是否为 Serv00/Hostuno 环境
+is_serv00() {
+    command -v devil &>/dev/null && return 0 || return 1
+}
+
+# 获取 Serv00/Hostuno 用户 IP 的流量
+# 优先级: cache2/cache > web2/web > 整个服务器
+get_serv00_traffic() {
+    local user_ip=""
+    local ip_name=""
+    
+    # 通过 devil vhost list 获取用户 IP
+    if command -v devil &>/dev/null; then
+        local vhost_list=$(devil vhost list 2>/dev/null)
+        
+        # 优先查找 cache2/cache
+        user_ip=$(echo "$vhost_list" | grep -E "cache2?\." | awk '{print $1}' | head -1)
+        if [ -n "$user_ip" ]; then
+            ip_name="cache"
+        fi
+        
+        # 如果没有 cache，查找 web2/web
+        if [ -z "$user_ip" ]; then
+            user_ip=$(echo "$vhost_list" | grep -E "web2?\." | awk '{print $1}' | head -1)
+            if [ -n "$user_ip" ]; then
+                ip_name="web"
+            fi
+        fi
+    fi
+    
+    if [ -n "$user_ip" ]; then
+        # 从 netstat -ibn 获取该 IP 的流量
+        # 格式: ixl0 - 213.189.54.237/32 213.189.54.237 744716020 - - 170982155104 6086833 - 2891794942 -
+        local stats=$(netstat -ibn 2>/dev/null | grep "$user_ip" | head -1)
+        if [ -n "$stats" ]; then
+            # 列: Name - Network Address Ipkts - - Ibytes Opkts - Obytes -
+            # 这种格式下 Ibytes 是第8列，Obytes 是第11列
+            local rx_bytes=$(echo "$stats" | awk '{print $8}')
+            local tx_bytes=$(echo "$stats" | awk '{print $11}')
+            
+            # 验证是数字
+            case "$rx_bytes" in ''|*[!0-9]*) rx_bytes=0 ;; esac
+            case "$tx_bytes" in ''|*[!0-9]*) tx_bytes=0 ;; esac
+            
+            echo "${ip_name}(${user_ip}) $rx_bytes $tx_bytes"
+            return
+        fi
+    fi
+    
+    # 回退到整个服务器流量
     local iface=$(get_primary_interface)
     local traffic=$(get_interface_traffic "$iface")
-    
-    local rx_bytes=$(echo "$traffic" | awk '{print $1}')
-    local tx_bytes=$(echo "$traffic" | awk '{print $2}')
-    
-    rx_bytes=${rx_bytes:-0}
-    tx_bytes=${tx_bytes:-0}
-    
-    # 直接返回变量，不用JSON格式
-    echo "$iface $rx_bytes $tx_bytes"
+    echo "$iface(server) $(echo "$traffic" | awk '{print $1}') $(echo "$traffic" | awk '{print $2}')"
 }
+
+get_vps_traffic() {
+    if is_freebsd && is_serv00; then
+        # Serv00/Hostuno: 获取用户 IP 的流量
+        get_serv00_traffic
+    else
+        # 普通 VPS: 获取主接口流量
+        local iface=$(get_primary_interface)
+        local traffic=$(get_interface_traffic "$iface")
+        
+        local rx_bytes=$(echo "$traffic" | awk '{print $1}')
+        local tx_bytes=$(echo "$traffic" | awk '{print $2}')
+        
+        rx_bytes=${rx_bytes:-0}
+        tx_bytes=${tx_bytes:-0}
+        
+        echo "$iface $rx_bytes $tx_bytes"
+    fi
+}
+
 
 # JSON 解析辅助函数 (兼容 FreeBSD)
 json_get_value() {
