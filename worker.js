@@ -564,33 +564,18 @@ function parseAnyTLSLink(link) {
 
 // 将 AnyTLS 节点转换为 Clash YAML 格式（单行 Flow 格式）
 function anyTLSToClashYAML(node) {
-	// 使用单行 Flow 格式（花括号），与 Clash Meta 标准一致
-	// 参考: { name: 节点名, type: anytls, server: 1.2.3.4, port: 443, ... }
-
-	// 构建配置项数组
+	// 简化格式，参考 sub2clash 实现
+	// 格式: {name: xxx, server: xxx, port: xxx, type: anytls, password: xxx, skip-cert-verify: true}
 	const parts = [
 		`name: ${node.remark}`,
-		`type: anytls`,
 		`server: ${node.server}`,
 		`port: ${node.port}`,
+		`type: anytls`,
 		`password: ${node.password}`,
-		`client-fingerprint: ${node.fingerprint}`,
-		`udp: true`,
-		`alpn: [h2, http/1.1]`,
-		`sni: ${node.sni}`,
 		`skip-cert-verify: ${node.skipCertVerify}`
 	];
 
-	// 如果是 Any-Reality，添加 reality-opts
-	if (node.security === 'reality' && node.publicKey) {
-		let realityParts = [`public-key: ${node.publicKey}`];
-		if (node.shortId) {
-			realityParts.push(`short-id: ${node.shortId}`);
-		}
-		parts.push(`reality-opts: { ${realityParts.join(', ')} }`);
-	}
-
-	return `  - { ${parts.join(', ')} }`;
+	return `  - {${parts.join(', ')}}`;
 }
 
 function clashFix(content) {
