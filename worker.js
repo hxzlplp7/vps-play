@@ -566,23 +566,23 @@ function anyTLSToClashYAML(node) {
 		`server: ${node.server}`,
 		`port: ${node.port}`,
 		`password: ${node.password}`,
-		`'client-fingerprint': ${node.fingerprint}`,
+		`client-fingerprint: ${node.fingerprint}`,
 		`udp: true`,
 		`alpn: [h2, http/1.1]`,
 		`sni: ${node.sni}`,
-		`'skip-cert-verify': ${node.skipCertVerify}`
+		`skip-cert-verify: ${node.skipCertVerify}`
 	];
 
 	// 如果是 Any-Reality，添加 reality-opts
 	if (node.security === 'reality' && node.publicKey) {
-		let realityParts = [`'public-key': ${node.publicKey}`];
+		let realityParts = [`public-key: ${node.publicKey}`];
 		if (node.shortId) {
-			realityParts.push(`'short-id': ${node.shortId}`);
+			realityParts.push(`short-id: ${node.shortId}`);
 		}
-		parts.push(`'reality-opts': { ${realityParts.join(', ')} }`);
+		parts.push(`reality-opts: { ${realityParts.join(', ')} }`);
 	}
 
-	return `    - { ${parts.join(', ')} }`;
+	return `  - { ${parts.join(', ')} }`;
 }
 
 function clashFix(content) {
