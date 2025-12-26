@@ -41,6 +41,48 @@ SINGBOX_REPO="https://github.com/SagerNet/sing-box"
 
 mkdir -p "$SINGBOX_DIR" "$CERT_DIR" "$CONFIG_DIR"
 
+# 检测 sing-box 是否支持 clash_api
+check_clash_api_support() {
+    if [ ! -f "$SINGBOX_BIN" ]; then
+        echo "false"
+        return
+    fi
+    # 创建一个测试配置来检测是否支持 clash_api
+    local test_conf=$(mktemp)
+    cat > "$test_conf" << 'TESTEOF'
+{
+  "experimental": {
+    "clash_api": {
+      "external_controller": "127.0.0.1:9999"
+    }
+  }
+}
+TESTEOF
+    if "$SINGBOX_BIN" check -c "$test_conf" 2>/dev/null; then
+        rm -f "$test_conf"
+        echo "true"
+    else
+        rm -f "$test_conf"
+        echo "false"
+    fi
+}
+
+# 生成 experimental 配置块 (如果支持)
+get_experimental_config() {
+    if [ "$(check_clash_api_support)" = "true" ]; then
+        cat << EOF
+  "experimental": {
+    "clash_api": {
+      "external_controller": "127.0.0.1:$SINGBOX_API_PORT",
+      "secret": ""
+    }
+  },
+EOF
+        # 保存 API 端口
+        echo "$SINGBOX_API_PORT" > "$SINGBOX_DIR/api_port"
+    fi
+}
+
 # ==================== 系统检测 ====================
 REGEX=("debian" "ubuntu" "centos|red hat|kernel|oracle linux|alma|rocky" "'amazon linux'" "fedora" "alpine")
 RELEASE=("Debian" "Ubuntu" "CentOS" "CentOS" "Fedora" "Alpine")
@@ -259,19 +301,14 @@ install_hysteria2() {
     fi
     
     # 生成配置
+    local exp_config=$(get_experimental_config)
     cat > "$SINGBOX_CONF" << EOF
 {
   "log": {
     "level": "info",
     "timestamp": true
   },
-  "experimental": {
-    "clash_api": {
-      "external_controller": "127.0.0.1:$SINGBOX_API_PORT",
-      "secret": ""
-    }
-  },
-  "inbounds": [
+${exp_config}  "inbounds": [
     {
       "type": "hysteria2",
       "tag": "hy2-in",
@@ -298,8 +335,6 @@ install_hysteria2() {
   ]
 }
 EOF
-    # 保存 API 端口供流量统计使用
-    echo "$SINGBOX_API_PORT" > "$SINGBOX_DIR/api_port"
 
 
     # 保存节点信息
@@ -367,19 +402,14 @@ install_tuic() {
     esac
     
     # 生成配置
+    local exp_config=$(get_experimental_config)
     cat > "$SINGBOX_CONF" << EOF
 {
   "log": {
     "level": "info",
     "timestamp": true
   },
-  "experimental": {
-    "clash_api": {
-      "external_controller": "127.0.0.1:$SINGBOX_API_PORT",
-      "secret": ""
-    }
-  },
-  "inbounds": [
+${exp_config}  "inbounds": [
     {
       "type": "tuic",
       "tag": "tuic-in",
@@ -408,8 +438,6 @@ install_tuic() {
   ]
 }
 EOF
-    # 保存 API 端口供流量统计使用
-    echo "$SINGBOX_API_PORT" > "$SINGBOX_DIR/api_port"
 
 
     # 保存节点信息
@@ -1001,19 +1029,14 @@ trojan://${password}@${server_ip}:${trojan_port}?sni=${CERT_DOMAIN:-www.bing.com
     fi
     
     # 生成完整配置
+    local exp_config=$(get_experimental_config)
     cat > "$SINGBOX_CONF" << EOF
 {
   "log": {
     "level": "info",
     "timestamp": true
   },
-  "experimental": {
-    "clash_api": {
-      "external_controller": "127.0.0.1:$SINGBOX_API_PORT",
-      "secret": ""
-    }
-  },
-  "inbounds": [${inbounds}
+${exp_config}  "inbounds": [${inbounds}
   ],
   "outbounds": [
     {
@@ -1023,8 +1046,6 @@ trojan://${password}@${server_ip}:${trojan_port}?sni=${CERT_DOMAIN:-www.bing.com
   ]
 }
 EOF
-    # 保存 API 端口供流量统计使用
-    echo "$SINGBOX_API_PORT" > "$SINGBOX_DIR/api_port"
     
     # 保存节点信息
     local active_protocols=""
