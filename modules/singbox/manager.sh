@@ -810,6 +810,16 @@ show_node_info() {
     fi
 }
 
+view_config() {
+    if [ -f "$SINGBOX_CONF" ]; then
+        echo -e "${Green}==================== 配置文件 ====================${Reset}"
+        cat "$SINGBOX_CONF"
+        echo -e "${Green}=================================================${Reset}"
+    else
+        echo -e "${Warning} 配置文件不存在"
+    fi
+}
+
 # ==================== 卸载 ====================
 uninstall_singbox() {
     echo -e "${Warning} 确定要卸载 sing-box? [y/N]"
@@ -1407,8 +1417,8 @@ EOF
             7) start_singbox ;;
             8) stop_singbox ;;
             9) restart_singbox ;;
-            10) check_status ;;
-            11) view_node_info ;;
+            10) status_singbox ;;
+            11) show_node_info ;;
             12) view_config ;;
             13) uninstall_singbox ;;
             0) return 0 ;;
