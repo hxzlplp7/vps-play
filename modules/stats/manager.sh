@@ -396,7 +396,15 @@ start_argo_tunnel() {
         esac
         
         mkdir -p "$(dirname "$cloudflared_bin")"
+        echo -e "${Info} 正在下载: $download_url"
         curl -sL "$download_url" -o "$cloudflared_bin"
+        
+        if [ ! -s "$cloudflared_bin" ]; then
+             echo -e "${Error} 下载失败或文件为空，请检查网络连接"
+             rm -f "$cloudflared_bin"
+             return 1
+        fi
+        
         chmod +x "$cloudflared_bin"
     fi
     
