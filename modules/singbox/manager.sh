@@ -62,9 +62,15 @@ mkdir -p "$DATA_DIR"
 
 # 初始化/获取 UUID (参照argosbx的insuuid函数, 修复FreeBSD兼容性)
 init_uuid() {
-    if [ -z "$uuid" ] && [ ! -e "$DATA_DIR/uuid" ]; then
+    # 首先尝试从文件读取（如果文件存在且非空）
+    if [ -s "$DATA_DIR/uuid" ]; then
+        uuid=$(cat "$DATA_DIR/uuid")
+    fi
+    
+    # 如果 uuid 为空，则生成新的
+    if [ -z "$uuid" ]; then
         # 方法1: 使用 sing-box 生成
-        if [ -e "$SINGBOX_BIN" ]; then
+        if [ -x "$SINGBOX_BIN" ]; then
             uuid=$("$SINGBOX_BIN" generate uuid 2>/dev/null)
         fi
         # 方法2: Linux /proc
@@ -79,11 +85,19 @@ init_uuid() {
         if [ -z "$uuid" ] || [ ${#uuid} -lt 32 ]; then
             uuid=$(od -An -tx1 -N 16 /dev/urandom 2>/dev/null | tr -d ' \n' | sed 's/\(.\{8\}\)\(.\{4\}\)\(.\{4\}\)\(.\{4\}\)\(.\{12\}\)/\1-\2-\3-\4-\5/')
         fi
-        echo "$uuid" > "$DATA_DIR/uuid"
-    elif [ -n "$uuid" ]; then
-        echo "$uuid" > "$DATA_DIR/uuid"
+        
+        # 保存到文件
+        if [ -n "$uuid" ]; then
+            echo "$uuid" > "$DATA_DIR/uuid"
+        fi
     fi
-    uuid=$(cat "$DATA_DIR/uuid" 2>/dev/null)
+    
+    # 最终验证
+    if [ -z "$uuid" ]; then
+        echo -e "${Error} UUID 生成失败"
+        return 1
+    fi
+    
     echo -e "${Info} UUID/密码：${Cyan}$uuid${Reset}"
 }
 
