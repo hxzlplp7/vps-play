@@ -2115,23 +2115,39 @@ tuic://${uuid}:${password}@${server_ip}:${tuic_port}?sni=${CERT_DOMAIN:-www.bing
         mkdir -p "$CERT_DIR/reality"
         
         # 复用已有密钥或生成新的 (参照 argosbx)
-        if [ -e "$CERT_DIR/reality/private_key" ]; then
+        # 检查已有密钥是否有效 (非空)
+        if [ -s "$CERT_DIR/reality/private_key" ] && [ -s "$CERT_DIR/reality/public_key" ]; then
             private_key=$(cat "$CERT_DIR/reality/private_key")
             public_key=$(cat "$CERT_DIR/reality/public_key")
-            short_id=$(cat "$CERT_DIR/reality/short_id")
-        else
+            short_id=$(cat "$CERT_DIR/reality/short_id" 2>/dev/null)
+            echo -e "${Info} 使用已有 Reality 密钥"
+        fi
+        
+        # 如果密钥为空，重新生成
+        if [ -z "$private_key" ] || [ -z "$public_key" ]; then
+            echo -e "${Info} 生成新的 Reality 密钥对..."
             local keypair=$($SINGBOX_BIN generate reality-keypair 2>/dev/null)
             private_key=$(echo "$keypair" | awk '/PrivateKey/ {print $2}' | tr -d '"')
             public_key=$(echo "$keypair" | awk '/PublicKey/ {print $2}' | tr -d '"')
+            
+            # 验证密钥是否生成成功
+            if [ -z "$private_key" ] || [ -z "$public_key" ]; then
+                echo -e "${Error} Reality 密钥生成失败，请确保 sing-box 版本支持 reality-keypair"
+                echo -e "${Info} 尝试手动执行: $SINGBOX_BIN generate reality-keypair"
+                return 1
+            fi
+            
             # FreeBSD 兼容的 short_id 生成
             short_id=$($SINGBOX_BIN generate rand --hex 4 2>/dev/null)
             [ -z "$short_id" ] && short_id=$(od -An -tx1 -N 4 /dev/urandom 2>/dev/null | tr -d ' \n')
             [ -z "$short_id" ] && short_id=$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom 2>/dev/null | head -c 8)
+            [ -z "$short_id" ] && short_id="12345678"  # 最后保底
             
             # 保存密钥
             echo "$private_key" > "$CERT_DIR/reality/private_key"
             echo "$public_key" > "$CERT_DIR/reality/public_key"
             echo "$short_id" > "$CERT_DIR/reality/short_id"
+            echo -e "${Info} Reality 密钥已保存"
         fi
         local dest="apple.com"
         
@@ -2288,22 +2304,39 @@ ${anytls_link}"
     if [ "$install_any_reality" = true ]; then
         # 复用已有密钥或使用 VLESS 生成的密钥 (参照 argosbx)
         mkdir -p "$CERT_DIR/reality"
-        if [ -e "$CERT_DIR/reality/private_key" ]; then
+        
+        # 检查已有密钥是否有效 (非空)
+        if [ -s "$CERT_DIR/reality/private_key" ] && [ -s "$CERT_DIR/reality/public_key" ]; then
             private_key=$(cat "$CERT_DIR/reality/private_key")
             public_key=$(cat "$CERT_DIR/reality/public_key")
-            short_id=$(cat "$CERT_DIR/reality/short_id")
-        else
+            short_id=$(cat "$CERT_DIR/reality/short_id" 2>/dev/null)
+            echo -e "${Info} 使用已有 Reality 密钥"
+        fi
+        
+        # 如果密钥为空，重新生成
+        if [ -z "$private_key" ] || [ -z "$public_key" ]; then
+            echo -e "${Info} 生成新的 Reality 密钥对..."
             local keypair=$($SINGBOX_BIN generate reality-keypair 2>/dev/null)
             private_key=$(echo "$keypair" | awk '/PrivateKey/ {print $2}' | tr -d '"')
             public_key=$(echo "$keypair" | awk '/PublicKey/ {print $2}' | tr -d '"')
+            
+            # 验证密钥是否生成成功
+            if [ -z "$private_key" ] || [ -z "$public_key" ]; then
+                echo -e "${Error} Reality 密钥生成失败，请确保 sing-box 版本支持 reality-keypair"
+                echo -e "${Info} 尝试手动执行: $SINGBOX_BIN generate reality-keypair"
+                return 1
+            fi
+            
             # FreeBSD 兼容的 short_id 生成
             short_id=$($SINGBOX_BIN generate rand --hex 4 2>/dev/null)
             [ -z "$short_id" ] && short_id=$(od -An -tx1 -N 4 /dev/urandom 2>/dev/null | tr -d ' \n')
             [ -z "$short_id" ] && short_id=$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom 2>/dev/null | head -c 8)
+            [ -z "$short_id" ] && short_id="12345678"  # 最后保底
             
             echo "$private_key" > "$CERT_DIR/reality/private_key"
             echo "$public_key" > "$CERT_DIR/reality/public_key"
             echo "$short_id" > "$CERT_DIR/reality/short_id"
+            echo -e "${Info} Reality 密钥已保存"
         fi
         
         local ar_dest="apple.com"
