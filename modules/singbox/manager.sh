@@ -55,6 +55,57 @@ SINGBOX_REPO="https://github.com/SagerNet/sing-box"
 
 mkdir -p "$SINGBOX_DIR" "$CERT_DIR" "$CONFIG_DIR"
 
+# ==================== 参数持久化存储 (参照argosbx) ====================
+DATA_DIR="$SINGBOX_DIR/data"
+LINKS_FILE="$SINGBOX_DIR/links.txt"
+mkdir -p "$DATA_DIR"
+
+# 初始化/获取 UUID (参照argosbx的insuuid函数)
+init_uuid() {
+    if [ -z "$uuid" ] && [ ! -e "$DATA_DIR/uuid" ]; then
+        if [ -e "$SINGBOX_BIN" ]; then
+            uuid=$("$SINGBOX_BIN" generate uuid 2>/dev/null)
+        fi
+        [ -z "$uuid" ] && uuid=$(cat /proc/sys/kernel/random/uuid 2>/dev/null)
+        [ -z "$uuid" ] && uuid=$(uuidgen 2>/dev/null)
+        [ -z "$uuid" ] && uuid=$(head /dev/urandom | tr -dc a-f0-9 | head -c 8)-$(head /dev/urandom | tr -dc a-f0-9 | head -c 4)-$(head /dev/urandom | tr -dc a-f0-9 | head -c 4)-$(head /dev/urandom | tr -dc a-f0-9 | head -c 4)-$(head /dev/urandom | tr -dc a-f0-9 | head -c 12)
+        echo "$uuid" > "$DATA_DIR/uuid"
+    elif [ -n "$uuid" ]; then
+        echo "$uuid" > "$DATA_DIR/uuid"
+    fi
+    uuid=$(cat "$DATA_DIR/uuid" 2>/dev/null)
+    echo -e "${Info} UUID/密码：${Cyan}$uuid${Reset}"
+}
+
+# 保存端口到文件
+save_port() {
+    local proto=$1
+    local port=$2
+    echo "$port" > "$DATA_DIR/port_${proto}"
+}
+
+# 读取端口
+load_port() {
+    local proto=$1
+    cat "$DATA_DIR/port_${proto}" 2>/dev/null
+}
+
+# 获取服务器IP (参照argosbx的ipbest函数)
+get_server_ip() {
+    local serip
+    serip=$(curl -s4m5 -k https://icanhazip.com 2>/dev/null || curl -s6m5 -k https://icanhazip.com 2>/dev/null)
+    [ -z "$serip" ] && serip=$(curl -s4m5 ip.sb 2>/dev/null || curl -s6m5 ip.sb 2>/dev/null)
+    [ -z "$serip" ] && serip="$PUBLIC_IP"
+    
+    if echo "$serip" | grep -q ':'; then
+        server_ip="[$serip]"
+    else
+        server_ip="$serip"
+    fi
+    echo "$server_ip" > "$DATA_DIR/server_ip"
+    echo "$server_ip"
+}
+
 # 生成 experimental 配置块 (可选，目前不使用)
 # 流量统计已改为读取 VPS 系统网络接口流量
 get_experimental_config() {
@@ -281,15 +332,30 @@ install_hysteria2() {
     # 确保 sing-box 已安装
     [ ! -f "$SINGBOX_BIN" ] && download_singbox
     
+    # 初始化 UUID 作为密码
+    init_uuid
+    local password="$uuid"
+    
     # 配置证书
     cert_menu
     
-    # 配置端口
-    local port=$(config_port "Hysteria2")
+    # 配置端口 (尝试读取已保存的端口)
+    local saved_port=$(load_port "hy2")
+    if [ -n "$saved_port" ]; then
+        echo -e "${Info} 检测到已保存的端口: $saved_port"
+        read -p "使用此端口? [Y/n]: " use_saved
+        if [[ ! $use_saved =~ ^[Nn]$ ]]; then
+            port="$saved_port"
+        else
+            port=$(config_port "Hysteria2")
+        fi
+    else
+        port=$(config_port "Hysteria2")
+    fi
     
-    # 配置密码
-    read -p "设置密码 [留空随机生成]: " password
-    [ -z "$password" ] && password=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
+    # 保存端口
+    save_port "hy2" "$port"
+    echo -e "${Info} Hysteria2 端口: ${Cyan}$port${Reset}"
     
     # 端口跳跃
     echo -e ""
@@ -307,6 +373,7 @@ install_hysteria2() {
             iptables -t nat -A PREROUTING -p udp --dport ${start_port}:${end_port} -j REDIRECT --to-ports $port 2>/dev/null
             ip6tables -t nat -A PREROUTING -p udp --dport ${start_port}:${end_port} -j REDIRECT --to-ports $port 2>/dev/null
             port_hopping="${start_port}-${end_port}"
+            echo "$port_hopping" > "$DATA_DIR/hy2_hopping"
             echo -e "${Info} 端口跳跃已配置: $port_hopping -> $port"
         fi
     fi
@@ -347,32 +414,11 @@ ${exp_config}  "inbounds": [
 }
 EOF
 
-
-    # 保存节点信息
-    local server_ip=$(get_ip)
-    cat > "$SINGBOX_DIR/node_info.txt" << EOF
-协议: Hysteria2
-地址: $server_ip
-端口: ${port_hopping:-$port}
-密码: $password
-SNI: ${CERT_DOMAIN:-www.bing.com}
-跳过证书验证: true
-EOF
-
-    # 生成分享链接
-    local hy2_link="hysteria2://${password}@${server_ip}:${port_hopping:-$port}?sni=${CERT_DOMAIN:-www.bing.com}&insecure=1#Hy2-${server_ip}"
-    echo "$hy2_link" > "$SINGBOX_DIR/hy2_link.txt"
-
     echo -e ""
     echo -e "${Green}========== Hysteria2 安装完成 ==========${Reset}"
-    echo -e " 地址: ${Cyan}${server_ip}${Reset}"
-    echo -e " 端口: ${Cyan}${port_hopping:-$port}${Reset}"
-    echo -e " 密码: ${Cyan}${password}${Reset}"
-    echo -e " SNI:  ${Cyan}${CERT_DOMAIN:-www.bing.com}${Reset}"
-    echo -e ""
-    echo -e " 分享链接:"
-    echo -e " ${Yellow}${hy2_link}${Reset}"
-    echo -e "${Green}=========================================${Reset}"
+    
+    # 显示节点信息
+    display_all_nodes
     
     # 询问是否启动
     read -p "是否立即启动? [Y/n]: " start_now
@@ -403,13 +449,27 @@ install_anytls() {
         fi
     fi
     
-    # 2. 配置端口
-    local port=$(config_port "AnyTLS")
+    # 2. 初始化 UUID 作为密码
+    init_uuid
+    local password="$uuid"
     
-    # 3. 配置密码
-    read -p "设置密码 [留空随机]: " password
-    [ -z "$password" ] && password=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
-    echo -e "${Info} 密码: ${Cyan}$password${Reset}"
+    # 3. 配置端口 (尝试读取已保存的端口)
+    local saved_port=$(load_port "anytls")
+    if [ -n "$saved_port" ]; then
+        echo -e "${Info} 检测到已保存的端口: $saved_port"
+        read -p "使用此端口? [Y/n]: " use_saved
+        if [[ ! $use_saved =~ ^[Nn]$ ]]; then
+            port="$saved_port"
+        else
+            port=$(config_port "AnyTLS")
+        fi
+    else
+        port=$(config_port "AnyTLS")
+    fi
+    
+    # 保存端口
+    save_port "anytls" "$port"
+    echo -e "${Info} AnyTLS 端口: ${Cyan}$port${Reset}"
     
     # 4. 生成自签证书（AnyTLS 需要 TLS）
     echo -e "${Info} 生成自签证书..."
@@ -484,58 +544,11 @@ install_anytls() {
 }
 EOF
 
-    # 保存节点信息
-    local server_ip=$(get_ip)
-    local hostname=$(hostname 2>/dev/null || echo "vps")
-    cat > "$SINGBOX_DIR/node_info.txt" << EOF
-协议: AnyTLS
-地址: $server_ip
-端口: $port
-密码: $password
-证书: 自签证书
-SNI: $cert_domain
-说明: 客户端需要安装支持 AnyTLS 的 sing-box (v1.12.0+) 或 Clash Meta
-      移动端(小火箭/NekoBox)需启用"允许不安全"或"skip-cert-verify"
-
-OUTBOUND配置示例:
-{
-  "type": "anytls",
-  "tag": "anytls-out",
-  "server": "$server_ip",
-  "server_port": $port,
-  "password": "$password",
-  "tls": {
-    "enabled": true,
-    "server_name": "$cert_domain",
-    "insecure": true
-  }
-}
-EOF
-
-    # 生成分享链接（完整格式，兼容 Worker.js 和 sublinkPro）
-    local anytls_link="anytls://${password}@${server_ip}:${port}?insecure=1&sni=${server_ip}&fp=chrome&alpn=h2,http/1.1&udp=1#anytls-${hostname}"
-    local out_json="{\"type\":\"anytls\",\"tag\":\"anytls-out\",\"server\":\"$server_ip\",\"server_port\":$port,\"password\":\"$password\",\"tls\":{\"enabled\":true,\"server_name\":\"$server_ip\",\"insecure\":true}}"
-    
-    # 保存链接和JSON
-    echo "$anytls_link" > "$SINGBOX_DIR/anytls_link.txt"
-    echo "$out_json" >> "$SINGBOX_DIR/anytls_link.txt"
-
     echo -e ""
     echo -e "${Green}========== AnyTLS 安装完成 ==========${Reset}"
-    echo -e " 地址: ${Cyan}${server_ip}${Reset}"
-    echo -e " 端口: ${Cyan}${port}${Reset}"
-    echo -e " 密码: ${Cyan}${password}${Reset}"
-    echo -e " SNI:  ${Cyan}${cert_domain}${Reset}"
-    echo -e " ${Yellow}证书: 自签证书 (客户端需启用 skip-cert-verify)${Reset}"
-    echo -e ""
-    echo -e " 分享链接:"
-    echo -e " ${Yellow}${anytls_link}${Reset}"
-    echo -e ""
-    echo -e " JSON配置:"
-    echo -e " ${Yellow}${out_json}${Reset}"
-    echo -e ""
-    echo -e " ${Yellow}请查看 $SINGBOX_DIR/node_info.txt 获取完整配置${Reset}"
-    echo -e "${Green}========================================${Reset}"
+    
+    # 显示节点信息
+    display_all_nodes
     
     # 询问是否启动
     read -p "是否立即启动? [Y/n]: " start_now
@@ -566,23 +579,38 @@ install_any_reality() {
         fi
     fi
     
-    # 2. 配置端口
-    local port=$(config_port "Any-Reality")
+    # 2. 初始化 UUID 作为密码
+    init_uuid
+    local password="$uuid"
     
-    # 3. 配置密码
-    read -p "设置密码 [留空随机]: " password
-    [ -z "$password" ] && password=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
-    echo -e "${Info} 密码: ${Cyan}$password${Reset}"
+    # 3. 配置端口 (尝试读取已保存的端口)
+    local saved_port=$(load_port "anyreality")
+    if [ -n "$saved_port" ]; then
+        echo -e "${Info} 检测到已保存的端口: $saved_port"
+        read -p "使用此端口? [Y/n]: " use_saved
+        if [[ ! $use_saved =~ ^[Nn]$ ]]; then
+            port="$saved_port"
+        else
+            port=$(config_port "Any-Reality")
+        fi
+    else
+        port=$(config_port "Any-Reality")
+    fi
+    
+    # 保存端口
+    save_port "anyreality" "$port"
+    echo -e "${Info} Any-Reality 端口: ${Cyan}$port${Reset}"
     
     # 4. Reality 配置
     echo -e ""
-    read -p "目标网站 (dest) [www.apple.com]: " dest
-    dest=${dest:-www.apple.com}
+    read -p "目标网站 (dest) [apple.com]: " dest
+    dest=${dest:-apple.com}
+    echo "$dest" > "$DATA_DIR/ym_vl_re"
     
     read -p "Server Name [${dest}]: " server_name
     server_name=${server_name:-$dest}
     
-    # 5. 生成 Reality 密钥对
+    # 5. 生成 Reality 密钥对 (参照argosbx)
     echo -e "${Info} 生成 Reality 密钥对..."
     mkdir -p "$CERT_DIR/reality"
     
@@ -649,60 +677,11 @@ install_any_reality() {
 }
 EOF
 
-    # 保存节点信息
-    local server_ip=$(get_ip)
-    local hostname=$(hostname 2>/dev/null || echo "vps")
-    cat > "$SINGBOX_DIR/node_info.txt" << EOF
-协议: Any-Reality (AnyTLS + Reality)
-地址: $server_ip
-端口: $port
-密码: $password
-目标网站: $dest
-SNI: $server_name
-公钥: $public_key
-Short ID: $short_id
-说明: 客户端需要支持 AnyTLS 的 sing-box (v1.12.0+)
-
-OUTBOUND配置示例:
-{
-  "type": "anytls",
-  "tag": "anyreality-out",
-  "server": "$server_ip",
-  "server_port": $port,
-  "password": "$password",
-  "tls": {
-    "enabled": true,
-    "server_name": "$server_name",
-    "reality": {
-      "enabled": true,
-      "public_key": "$public_key",
-      "short_id": "$short_id"
-    }
-  }
-}
-EOF
-
-    # 生成分享链接（完整格式，兼容 Worker.js 和 sublinkPro）
-    local ar_link="anytls://${password}@${server_ip}:${port}?security=reality&sni=${server_name}&fp=chrome&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#any-reality-${hostname}"
-    
-    # 保存链接
-    echo "$ar_link" > "$SINGBOX_DIR/anyreality_link.txt"
-
     echo -e ""
     echo -e "${Green}========== Any-Reality 安装完成 ==========${Reset}"
-    echo -e " 地址: ${Cyan}${server_ip}${Reset}"
-    echo -e " 端口: ${Cyan}${port}${Reset}"
-    echo -e " 密码: ${Cyan}${password}${Reset}"
-    echo -e " SNI:  ${Cyan}${server_name}${Reset}"
-    echo -e " 目标网站: ${Cyan}${dest}${Reset}"
-    echo -e " 公钥: ${Cyan}${public_key}${Reset}"
-    echo -e " Short ID: ${Cyan}${short_id}${Reset}"
-    echo -e ""
-    echo -e " 分享链接:"
-    echo -e " ${Yellow}${ar_link}${Reset}"
-    echo -e ""
-    echo -e " ${Yellow}请查看 $SINGBOX_DIR/node_info.txt 获取完整配置${Reset}"
-    echo -e "${Green}========================================${Reset}"
+    
+    # 显示节点信息
+    display_all_nodes
     
     # 询问是否启动
     read -p "是否立即启动? [Y/n]: " start_now
@@ -717,16 +696,31 @@ install_tuic() {
     # 确保 sing-box 已安装
     [ ! -f "$SINGBOX_BIN" ] && download_singbox
     
+    # 初始化 UUID 
+    init_uuid
+    local tuic_uuid="$uuid"
+    local password="$uuid"   # TUIC 的 password 和 uuid 相同 (参照argosbx)
+    
     # 配置证书
     cert_menu
     
-    # 配置端口
-    local port=$(config_port "TUIC")
+    # 配置端口 (尝试读取已保存的端口)
+    local saved_port=$(load_port "tuic")
+    if [ -n "$saved_port" ]; then
+        echo -e "${Info} 检测到已保存的端口: $saved_port"
+        read -p "使用此端口? [Y/n]: " use_saved
+        if [[ ! $use_saved =~ ^[Nn]$ ]]; then
+            port="$saved_port"
+        else
+            port=$(config_port "TUIC")
+        fi
+    else
+        port=$(config_port "TUIC")
+    fi
     
-    # 配置 UUID 和密码
-    local uuid=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen 2>/dev/null || echo "$(head /dev/urandom | tr -dc a-f0-9 | head -c 8)-$(head /dev/urandom | tr -dc a-f0-9 | head -c 4)-$(head /dev/urandom | tr -dc a-f0-9 | head -c 4)-$(head /dev/urandom | tr -dc a-f0-9 | head -c 4)-$(head /dev/urandom | tr -dc a-f0-9 | head -c 12)")
-    read -p "设置密码 [留空随机生成]: " password
-    [ -z "$password" ] && password=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
+    # 保存端口
+    save_port "tuic" "$port"
+    echo -e "${Info} TUIC 端口: ${Cyan}$port${Reset}"
     
     # 拥塞控制
     echo -e ""
@@ -758,8 +752,7 @@ ${exp_config}  "inbounds": [
       "listen_port": $port,
       "users": [
         {
-          "name": "user",
-          "uuid": "$uuid",
+          "uuid": "$tuic_uuid",
           "password": "$password"
         }
       ],
@@ -781,35 +774,11 @@ ${exp_config}  "inbounds": [
 }
 EOF
 
-
-    # 保存节点信息
-    local server_ip=$(get_ip)
-    cat > "$SINGBOX_DIR/node_info.txt" << EOF
-协议: TUIC v5
-地址: $server_ip
-端口: $port
-UUID: $uuid
-密码: $password
-拥塞控制: $congestion
-SNI: ${CERT_DOMAIN:-www.bing.com}
-跳过证书验证: true
-EOF
-
-    # 生成分享链接
-    local tuic_link="tuic://${uuid}:${password}@${server_ip}:${port}?sni=${CERT_DOMAIN:-www.bing.com}&congestion_control=${congestion}&alpn=h3&udp_relay_mode=native&allow_insecure=1#TUIC-${server_ip}"
-    echo "$tuic_link" > "$SINGBOX_DIR/tuic_link.txt"
-
     echo -e ""
     echo -e "${Green}========== TUIC 安装完成 ==========${Reset}"
-    echo -e " 地址: ${Cyan}${server_ip}${Reset}"
-    echo -e " 端口: ${Cyan}${port}${Reset}"
-    echo -e " UUID: ${Cyan}${uuid}${Reset}"
-    echo -e " 密码: ${Cyan}${password}${Reset}"
-    echo -e " 拥塞控制: ${Cyan}${congestion}${Reset}"
-    echo -e ""
-    echo -e " 分享链接:"
-    echo -e " ${Yellow}${tuic_link}${Reset}"
-    echo -e "${Green}=========================================${Reset}"
+    
+    # 显示节点信息
+    display_all_nodes
     
     # 询问是否启动
     read -p "是否立即启动? [Y/n]: " start_now
@@ -824,28 +793,57 @@ install_vless_reality() {
     # 确保 sing-box 已安装
     [ ! -f "$SINGBOX_BIN" ] && download_singbox
     
-    # 配置端口
-    local port=$(config_port "VLESS Reality")
+    # 初始化 UUID
+    init_uuid
+    local vless_uuid="$uuid"
     
-    # 生成 UUID
-    local uuid=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen 2>/dev/null)
+    # 配置端口 (尝试读取已保存的端口)
+    local saved_port=$(load_port "vless")
+    if [ -n "$saved_port" ]; then
+        echo -e "${Info} 检测到已保存的端口: $saved_port"
+        read -p "使用此端口? [Y/n]: " use_saved
+        if [[ ! $use_saved =~ ^[Nn]$ ]]; then
+            port="$saved_port"
+        else
+            port=$(config_port "VLESS Reality")
+        fi
+    else
+        port=$(config_port "VLESS Reality")
+    fi
+    
+    # 保存端口
+    save_port "vless" "$port"
+    echo -e "${Info} VLESS Reality 端口: ${Cyan}$port${Reset}"
     
     # Reality 配置
     echo -e ""
-    read -p "目标网站 (dest) [www.apple.com]: " dest
-    dest=${dest:-www.apple.com}
+    read -p "目标网站 (dest) [apple.com]: " dest
+    dest=${dest:-apple.com}
+    echo "$dest" > "$DATA_DIR/ym_vl_re"
     
     read -p "Server Name [${dest}]: " server_name
     server_name=${server_name:-$dest}
     
-    # 生成 Reality 密钥对
+    # 生成 Reality 密钥对 (参照argosbx，复用已有密钥)
     echo -e "${Info} 生成 Reality 密钥对..."
-    local keypair=$($SINGBOX_BIN generate reality-keypair 2>/dev/null)
-    local private_key=$(echo "$keypair" | grep -i "privatekey" | awk '{print $2}')
-    local public_key=$(echo "$keypair" | grep -i "publickey" | awk '{print $2}')
+    mkdir -p "$CERT_DIR/reality"
     
-    # 生成 Short ID
-    local short_id=$(head /dev/urandom | tr -dc a-f0-9 | head -c 8)
+    if [ -e "$CERT_DIR/reality/private_key" ]; then
+        private_key=$(cat "$CERT_DIR/reality/private_key")
+        public_key=$(cat "$CERT_DIR/reality/public_key")
+        short_id=$(cat "$CERT_DIR/reality/short_id")
+        echo -e "${Info} 使用已存在的 Reality 密钥"
+    else
+        local keypair=$($SINGBOX_BIN generate reality-keypair 2>/dev/null)
+        private_key=$(echo "$keypair" | awk '/PrivateKey/ {print $2}' | tr -d '"')
+        public_key=$(echo "$keypair" | awk '/PublicKey/ {print $2}' | tr -d '"')
+        short_id=$($SINGBOX_BIN generate rand --hex 4 2>/dev/null || head /dev/urandom | tr -dc a-f0-9 | head -c 8)
+        
+        echo "$private_key" > "$CERT_DIR/reality/private_key"
+        echo "$public_key" > "$CERT_DIR/reality/public_key"
+        echo "$short_id" > "$CERT_DIR/reality/short_id"
+        echo -e "${Info} Reality 密钥生成完成"
+    fi
     
     # 生成配置
     cat > "$SINGBOX_CONF" << EOF
@@ -862,7 +860,7 @@ install_vless_reality() {
       "listen_port": $port,
       "users": [
         {
-          "uuid": "$uuid",
+          "uuid": "$vless_uuid",
           "flow": "xtls-rprx-vision"
         }
       ],
@@ -890,35 +888,11 @@ install_vless_reality() {
 }
 EOF
 
-    # 保存节点信息
-    local server_ip=$(get_ip)
-    cat > "$SINGBOX_DIR/node_info.txt" << EOF
-协议: VLESS Reality
-地址: $server_ip
-端口: $port
-UUID: $uuid
-Flow: xtls-rprx-vision
-SNI: $server_name
-公钥: $public_key
-Short ID: $short_id
-EOF
-
-    # 生成分享链接
-    local vless_link="vless://${uuid}@${server_ip}:${port}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${server_name}&fp=chrome&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#VLESS-Reality-${server_ip}"
-    echo "$vless_link" > "$SINGBOX_DIR/vless_link.txt"
-
     echo -e ""
     echo -e "${Green}========== VLESS Reality 安装完成 ==========${Reset}"
-    echo -e " 地址: ${Cyan}${server_ip}${Reset}"
-    echo -e " 端口: ${Cyan}${port}${Reset}"
-    echo -e " UUID: ${Cyan}${uuid}${Reset}"
-    echo -e " SNI:  ${Cyan}${server_name}${Reset}"
-    echo -e " 公钥: ${Cyan}${public_key}${Reset}"
-    echo -e " Short ID: ${Cyan}${short_id}${Reset}"
-    echo -e ""
-    echo -e " 分享链接:"
-    echo -e " ${Yellow}${vless_link}${Reset}"
-    echo -e "${Green}=========================================${Reset}"
+    
+    # 显示节点信息
+    display_all_nodes
     
     # 询问是否启动
     read -p "是否立即启动? [Y/n]: " start_now
@@ -1065,38 +1039,130 @@ status_singbox() {
     fi
 }
 
+# ==================== 统一节点信息输出 (参照argosbx的cip函数) ====================
+display_all_nodes() {
+    local server_ip=$(get_server_ip)
+    local uuid=$(cat "$DATA_DIR/uuid" 2>/dev/null)
+    local hostname=$(hostname 2>/dev/null || echo "vps")
+    
+    rm -f "$LINKS_FILE"
+    
+    echo -e ""
+    echo -e "${Green}*********************************************************${Reset}"
+    echo -e "${Green}*             VPS-play 节点配置信息                     *${Reset}"
+    echo -e "${Green}*********************************************************${Reset}"
+    echo -e ""
+    echo -e " 服务器IP: ${Cyan}$server_ip${Reset}"
+    echo -e " UUID/密码: ${Cyan}$uuid${Reset}"
+    echo -e ""
+    
+    # 检测并显示 Hysteria2 节点
+    if [ -f "$SINGBOX_CONF" ] && grep -q '"type": "hysteria2"' "$SINGBOX_CONF" 2>/dev/null; then
+        local hy2_port=$(load_port "hy2")
+        [ -z "$hy2_port" ] && hy2_port=$(grep -A5 '"hysteria2"' "$SINGBOX_CONF" | grep "listen_port" | grep -o '[0-9]*' | head -1)
+        local hy2_password=$(grep -A10 '"hysteria2"' "$SINGBOX_CONF" | grep '"password"' | head -1 | sed 's/.*"\([^"]*\)".*/\1/')
+        [ -z "$hy2_password" ] && hy2_password="$uuid"
+        
+        echo -e "💣【 Hysteria2 】节点信息如下："
+        local hy2_link="hysteria2://${hy2_password}@${server_ip}:${hy2_port}?security=tls&alpn=h3&insecure=1&sni=www.bing.com#${hostname}-hy2"
+        echo "$hy2_link" >> "$LINKS_FILE"
+        echo -e "${Yellow}$hy2_link${Reset}"
+        echo -e ""
+    fi
+    
+    # 检测并显示 TUIC 节点
+    if [ -f "$SINGBOX_CONF" ] && grep -q '"type": "tuic"' "$SINGBOX_CONF" 2>/dev/null; then
+        local tuic_port=$(load_port "tuic")
+        [ -z "$tuic_port" ] && tuic_port=$(grep -A5 '"tuic"' "$SINGBOX_CONF" | grep "listen_port" | grep -o '[0-9]*' | head -1)
+        local tuic_uuid=$(grep -A10 '"tuic"' "$SINGBOX_CONF" | grep '"uuid"' | head -1 | sed 's/.*"\([^"]*\)".*/\1/')
+        [ -z "$tuic_uuid" ] && tuic_uuid="$uuid"
+        local tuic_password="$tuic_uuid"
+        
+        echo -e "💣【 TUIC 】节点信息如下："
+        local tuic_link="tuic://${tuic_uuid}:${tuic_password}@${server_ip}:${tuic_port}?congestion_control=bbr&udp_relay_mode=native&alpn=h3&sni=www.bing.com&allow_insecure=1&allowInsecure=1#${hostname}-tuic"
+        echo "$tuic_link" >> "$LINKS_FILE"
+        echo -e "${Yellow}$tuic_link${Reset}"
+        echo -e ""
+    fi
+    
+    # 检测并显示 AnyTLS 节点 (不含 reality)
+    if [ -f "$SINGBOX_CONF" ] && grep -q '"type": "anytls"' "$SINGBOX_CONF" 2>/dev/null && ! grep -q '"anyreality' "$SINGBOX_CONF" 2>/dev/null; then
+        local an_port=$(load_port "anytls")
+        [ -z "$an_port" ] && an_port=$(grep -A5 '"anytls"' "$SINGBOX_CONF" | grep "listen_port" | grep -o '[0-9]*' | head -1)
+        local an_password=$(grep -A10 '"anytls"' "$SINGBOX_CONF" | grep '"password"' | head -1 | sed 's/.*"\([^"]*\)".*/\1/')
+        [ -z "$an_password" ] && an_password="$uuid"
+        
+        echo -e "💣【 AnyTLS 】节点信息如下："
+        local an_link="anytls://${an_password}@${server_ip}:${an_port}?insecure=1&allowInsecure=1#${hostname}-anytls"
+        echo "$an_link" >> "$LINKS_FILE"
+        echo -e "${Yellow}$an_link${Reset}"
+        echo -e ""
+    fi
+    
+    # 检测并显示 Any-Reality 节点
+    if [ -f "$SINGBOX_CONF" ] && grep -q '"anyreality' "$SINGBOX_CONF" 2>/dev/null; then
+        local ar_port=$(load_port "anyreality")
+        [ -z "$ar_port" ] && ar_port=$(grep -A5 '"anyreality' "$SINGBOX_CONF" | grep "listen_port" | grep -o '[0-9]*' | head -1)
+        local ar_password=$(grep -A10 '"anyreality' "$SINGBOX_CONF" | grep '"password"' | head -1 | sed 's/.*"\([^"]*\)".*/\1/')
+        [ -z "$ar_password" ] && ar_password="$uuid"
+        local public_key=$(cat "$CERT_DIR/reality/public_key" 2>/dev/null)
+        local short_id=$(cat "$CERT_DIR/reality/short_id" 2>/dev/null)
+        local sni=$(grep -A20 '"anyreality' "$SINGBOX_CONF" | grep '"server_name"' | head -1 | sed 's/.*"\([^"]*\)".*/\1/')
+        [ -z "$sni" ] && sni="apple.com"
+        
+        echo -e "💣【 Any-Reality 】节点信息如下："
+        local ar_link="anytls://${ar_password}@${server_ip}:${ar_port}?security=reality&sni=${sni}&fp=chrome&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#${hostname}-any-reality"
+        echo "$ar_link" >> "$LINKS_FILE"
+        echo -e "${Yellow}$ar_link${Reset}"
+        echo -e ""
+    fi
+    
+    # 检测并显示 VLESS Reality 节点
+    if [ -f "$SINGBOX_CONF" ] && grep -q '"type": "vless"' "$SINGBOX_CONF" 2>/dev/null; then
+        local vl_port=$(load_port "vless")
+        [ -z "$vl_port" ] && vl_port=$(grep -A5 '"vless"' "$SINGBOX_CONF" | grep "listen_port" | grep -o '[0-9]*' | head -1)
+        local vl_uuid=$(grep -A10 '"vless"' "$SINGBOX_CONF" | grep '"uuid"' | head -1 | sed 's/.*"\([^"]*\)".*/\1/')
+        [ -z "$vl_uuid" ] && vl_uuid="$uuid"
+        local public_key=$(cat "$CERT_DIR/reality/public_key" 2>/dev/null)
+        local short_id=$(cat "$CERT_DIR/reality/short_id" 2>/dev/null)
+        local sni=$(grep -A20 '"vless"' "$SINGBOX_CONF" | grep '"server_name"' | head -1 | sed 's/.*"\([^"]*\)".*/\1/')
+        [ -z "$sni" ] && sni="apple.com"
+        
+        echo -e "💣【 VLESS-tcp-reality-vision 】节点信息如下："
+        local vl_link="vless://${vl_uuid}@${server_ip}:${vl_port}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${sni}&fp=chrome&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#${hostname}-vless-reality"
+        echo "$vl_link" >> "$LINKS_FILE"
+        echo -e "${Yellow}$vl_link${Reset}"
+        echo -e ""
+    fi
+    
+    # 检测并显示 Shadowsocks 节点
+    if [ -f "$SINGBOX_CONF" ] && grep -q '"type": "shadowsocks"' "$SINGBOX_CONF" 2>/dev/null; then
+        local ss_port=$(load_port "ss")
+        [ -z "$ss_port" ] && ss_port=$(grep -A5 '"shadowsocks"' "$SINGBOX_CONF" | grep "listen_port" | grep -o '[0-9]*' | head -1)
+        local ss_password=$(grep -A10 '"shadowsocks"' "$SINGBOX_CONF" | grep '"password"' | head -1 | sed 's/.*"\([^"]*\)".*/\1/')
+        local ss_method=$(grep -A10 '"shadowsocks"' "$SINGBOX_CONF" | grep '"method"' | head -1 | sed 's/.*"\([^"]*\)".*/\1/')
+        [ -z "$ss_method" ] && ss_method="2022-blake3-aes-128-gcm"
+        
+        echo -e "💣【 Shadowsocks-2022 】节点信息如下："
+        local ss_link="ss://$(echo -n "${ss_method}:${ss_password}@${server_ip}:${ss_port}" | base64 -w0)#${hostname}-ss"
+        echo "$ss_link" >> "$LINKS_FILE"
+        echo -e "${Yellow}$ss_link${Reset}"
+        echo -e ""
+    fi
+    
+    echo -e "---------------------------------------------------------"
+    echo -e "聚合节点信息已保存到: ${Cyan}$LINKS_FILE${Reset}"
+    echo -e "可运行 ${Yellow}cat $LINKS_FILE${Reset} 查看"
+    echo -e "========================================================="
+}
+
 # ==================== 节点信息 ====================
 show_node_info() {
     while true; do
         clear
-        echo -e ""
-        echo -e "${Green}==================== 节点信息 ====================${Reset}"
         
-        if [ -f "$SINGBOX_DIR/node_info.txt" ]; then
-            cat "$SINGBOX_DIR/node_info.txt"
-        else
-            echo -e "${Warning} 未找到节点配置"
-        fi
-        
-        echo -e "${Green}=================================================${Reset}"
-        
-        # 显示分享链接
-        echo -e ""
-        echo -e "${Cyan}==================== 分享链接 ====================${Reset}"
-        local has_links=false
-        for link_file in "$SINGBOX_DIR"/*_link.txt "$SINGBOX_DIR"/combo_links.txt; do
-            if [ -f "$link_file" ]; then
-                has_links=true
-                echo -e "${Yellow}$(cat "$link_file")${Reset}"
-                echo -e ""
-            fi
-        done
-        
-        if [ "$has_links" = false ]; then
-            echo -e "${Warning} 未找到分享链接"
-        fi
-        
-        echo -e "${Cyan}=================================================${Reset}"
+        # 使用统一的节点信息输出函数
+        display_all_nodes
         
         # 操作菜单
         echo -e ""
@@ -1104,7 +1170,7 @@ show_node_info() {
         echo -e " ${Green}1.${Reset} 添加新节点 (保留现有节点)"
         echo -e " ${Green}2.${Reset} 重装现有节点 (重新生成配置)"
         echo -e " ${Green}3.${Reset} 修改节点参数"
-        echo -e " ${Green}4.${Reset} 复制分享链接"
+        echo -e " ${Green}4.${Reset} 复制分享链接到剪贴板"
         echo -e " ${Green}0.${Reset} 返回"
         echo -e ""
         
