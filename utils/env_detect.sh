@@ -8,10 +8,12 @@ OS_TYPE=""            # linux/freebsd
 OS_DISTRO=""          # ubuntu/debian/centos/alpine/freebsd
 HAS_ROOT=false        # 是否有 root 权限
 HAS_SYSTEMD=false     # 是否支持 systemd
+HAS_OPENRC=false      # 是否支持 OpenRC (Alpine)
 HAS_DEVIL=false       # 是否有 devil (Serv00/Hostuno)
 IS_NAT=false          # 是否为 NAT 环境
 PUBLIC_IP=""          # 公网 IP
 LOCAL_IP=""           # 本地 IP
+PKG_MANAGER=""        # 包管理器 (apt/yum/apk/pkg)
 
 # ==================== 颜色定义 ====================
 Green="\033[32m"
@@ -80,9 +82,14 @@ detect_services() {
     if command -v systemctl &>/dev/null && systemctl &>/dev/null; then
         HAS_SYSTEMD=true
         echo -e "${Info} 服务管理: ${Green}systemd${Reset}"
+    # 检测 OpenRC (Alpine Linux)
+    elif command -v rc-service &>/dev/null; then
+        HAS_OPENRC=true
+        echo -e "${Info} 服务管理: ${Green}OpenRC${Reset}"
     else
         HAS_SYSTEMD=false
-        echo -e "${Warning} 服务管理: 无 systemd (使用 cron/screen)"
+        HAS_OPENRC=false
+        echo -e "${Warning} 服务管理: 无 systemd/OpenRC (使用 cron/screen)"
     fi
     
     # 检测 devil (Serv00/Hostuno 特有)
@@ -90,6 +97,24 @@ detect_services() {
         HAS_DEVIL=true
         echo -e "${Info} 检测到 ${Cyan}devil${Reset} 命令 (Serv00/Hostuno 环境)"
     fi
+    
+    # 检测包管理器
+    if command -v apt-get &>/dev/null; then
+        PKG_MANAGER="apt"
+    elif command -v yum &>/dev/null; then
+        PKG_MANAGER="yum"
+    elif command -v dnf &>/dev/null; then
+        PKG_MANAGER="dnf"
+    elif command -v apk &>/dev/null; then
+        PKG_MANAGER="apk"
+    elif command -v pkg &>/dev/null; then
+        PKG_MANAGER="pkg"
+    elif command -v pacman &>/dev/null; then
+        PKG_MANAGER="pacman"
+    else
+        PKG_MANAGER="unknown"
+    fi
+    echo -e "${Info} 包管理器: ${Cyan}${PKG_MANAGER}${Reset}"
 }
 
 # ==================== 检测网络环境 ====================
@@ -279,7 +304,7 @@ detect_environment() {
     echo -e ""
     
     # 导出环境变量
-    export ENV_TYPE OS_TYPE OS_DISTRO ARCH HAS_ROOT HAS_SYSTEMD HAS_DEVIL IS_NAT PUBLIC_IP LOCAL_IP VIRT_TYPE IS_CONTAINER
+    export ENV_TYPE OS_TYPE OS_DISTRO ARCH HAS_ROOT HAS_SYSTEMD HAS_OPENRC HAS_DEVIL IS_NAT PUBLIC_IP LOCAL_IP VIRT_TYPE IS_CONTAINER PKG_MANAGER
 }
 
 # ==================== 保存环境信息 ====================
@@ -298,12 +323,14 @@ OS_DISTRO="$OS_DISTRO"
 ARCH="$ARCH"
 HAS_ROOT="$HAS_ROOT"
 HAS_SYSTEMD="$HAS_SYSTEMD"
+HAS_OPENRC="$HAS_OPENRC"
 HAS_DEVIL="$HAS_DEVIL"
 IS_NAT="$IS_NAT"
 PUBLIC_IP="$PUBLIC_IP"
 LOCAL_IP="$LOCAL_IP"
 VIRT_TYPE="$VIRT_TYPE"
 IS_CONTAINER="$IS_CONTAINER"
+PKG_MANAGER="$PKG_MANAGER"
 EOF
     
     echo -e "${Info} 环境信息已保存到: $config_file"
@@ -334,7 +361,9 @@ show_env_info() {
     [ "$IS_CONTAINER" = true ] && echo -e " 容器环境: ${Yellow}是${Reset}"
     echo -e " Root权限: $([ "$HAS_ROOT" = true ] && echo "${Green}是${Reset}" || echo "${Red}否${Reset}")"
     echo -e " Systemd:  $([ "$HAS_SYSTEMD" = true ] && echo "${Green}是${Reset}" || echo "${Red}否${Reset}")"
+    echo -e " OpenRC:   $([ "$HAS_OPENRC" = true ] && echo "${Green}是${Reset}" || echo "${Red}否${Reset}")"
     echo -e " Devil:    $([ "$HAS_DEVIL" = true ] && echo "${Green}是${Reset}" || echo "${Red}否${Reset}")"
+    echo -e " 包管理:  ${Cyan}${PKG_MANAGER}${Reset}"
     echo -e " NAT环境:  $([ "$IS_NAT" = true ] && echo "${Yellow}是${Reset}" || echo "${Green}否${Reset}")"
     echo -e " 公网IP:   ${Cyan}${PUBLIC_IP}${Reset}"
     [ "$IS_NAT" = true ] && echo -e " 本地IP:   ${Cyan}${LOCAL_IP}${Reset}"
@@ -348,3 +377,73 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     show_env_info
     save_env_info
 fi
+
+# ==================== 通用包安装函数 ====================
+# 用法: install_package curl wget openssl
+install_package() {
+    local packages="$@"
+    
+    if [ -z "$packages" ]; then
+        echo -e "${Warning} 未指定要安装的包"
+        return 1
+    fi
+    
+    # 如果没有 root 权限，尝试使用 sudo
+    local SUDO=""
+    if [ "$HAS_ROOT" != true ]; then
+        if command -v sudo &>/dev/null; then
+            SUDO="sudo"
+        else
+            echo -e "${Warning} 需要 root 权限来安装软件包"
+            return 1
+        fi
+    fi
+    
+    echo -e "${Info} 安装软件包: $packages"
+    
+    case "$PKG_MANAGER" in
+        apt)
+            $SUDO apt-get update -qq
+            $SUDO apt-get install -y -qq $packages
+            ;;
+        yum)
+            $SUDO yum install -y -q $packages
+            ;;
+        dnf)
+            $SUDO dnf install -y -q $packages
+            ;;
+        apk)
+            $SUDO apk add --no-cache $packages
+            ;;
+        pkg)
+            $SUDO pkg install -y $packages
+            ;;
+        pacman)
+            $SUDO pacman -S --noconfirm $packages
+            ;;
+        *)
+            echo -e "${Error} 不支持的包管理器: $PKG_MANAGER"
+            return 1
+            ;;
+    esac
+    
+    if [ $? -eq 0 ]; then
+        echo -e "${Info} 软件包安装完成"
+    else
+        echo -e "${Error} 软件包安装失败"
+        return 1
+    fi
+}
+
+# ==================== 检查并安装依赖 ====================
+# 用法: ensure_command curl "curl"
+# 第一个参数是命令名，第二个参数是包名（可选，默认同命令名）
+ensure_command() {
+    local cmd="$1"
+    local pkg="${2:-$1}"
+    
+    if ! command -v "$cmd" &>/dev/null; then
+        echo -e "${Info} 正在安装 $pkg..."
+        install_package "$pkg"
+    fi
+}

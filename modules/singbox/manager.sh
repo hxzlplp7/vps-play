@@ -1,7 +1,6 @@
 #!/bin/bash
 # sing-box 模块 - VPS-play
 # 多协议代理节点管理
-# 参考: Misaka-blog/hysteria-install, Misaka-blog/tuic-script
 #
 # Copyright (C) 2025 VPS-play Contributors
 #
@@ -17,9 +16,6 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
-# AnyTLS 协议实现参考了 GPL-3.0 许可的 argosbx 项目
-# https://github.com/yonggekkk/argosbx
 
 MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
 [ -z "$MODULE_DIR" ] && MODULE_DIR="$HOME/vps-play/modules/singbox"
@@ -943,7 +939,7 @@ start_singbox() {
     
     echo -e "${Info} 启动 sing-box..."
     
-    # 使用 systemd 或 nohup
+    # 使用 systemd 或 OpenRC 或 nohup
     if [ "$HAS_SYSTEMD" = true ] && [ "$HAS_ROOT" = true ]; then
         # 创建 systemd 服务
         cat > /etc/systemd/system/sing-box.service << EOF
@@ -976,6 +972,41 @@ EOF
             echo -e "${Info} systemd 状态："
             systemctl status sing-box --no-pager
         fi
+    elif [ "$HAS_OPENRC" = true ] && [ "$HAS_ROOT" = true ]; then
+        # 创建 OpenRC 服务 (Alpine Linux)
+        cat > /etc/init.d/sing-box << 'OPENRC_EOF'
+#!/sbin/openrc-run
+
+name="sing-box"
+description="sing-box service"
+command="SINGBOX_BIN_PLACEHOLDER"
+command_args="run -c SINGBOX_CONF_PLACEHOLDER"
+command_background=true
+pidfile="/run/${RC_SVCNAME}.pid"
+output_log="/var/log/sing-box.log"
+error_log="/var/log/sing-box.log"
+
+depend() {
+    need net
+    after firewall
+}
+OPENRC_EOF
+        # 替换占位符
+        sed -i "s|SINGBOX_BIN_PLACEHOLDER|$SINGBOX_BIN|g" /etc/init.d/sing-box
+        sed -i "s|SINGBOX_CONF_PLACEHOLDER|$SINGBOX_CONF|g" /etc/init.d/sing-box
+        
+        chmod +x /etc/init.d/sing-box
+        rc-update add sing-box default 2>/dev/null
+        rc-service sing-box start
+        
+        sleep 2
+        if rc-service sing-box status &>/dev/null; then
+            echo -e "${Info} sing-box 启动成功 (OpenRC)"
+        else
+            echo -e "${Error} 启动失败"
+            echo -e "${Info} 配置检查结果："
+            "$SINGBOX_BIN" check -c "$SINGBOX_CONF" 2>&1 || true
+        fi
     else
         # 使用 nohup
         start_process "singbox" "$SINGBOX_BIN run -c $SINGBOX_CONF" "$SINGBOX_DIR"
@@ -997,6 +1028,8 @@ stop_singbox() {
     
     if [ "$HAS_SYSTEMD" = true ] && [ "$HAS_ROOT" = true ]; then
         systemctl stop sing-box 2>/dev/null
+    elif [ "$HAS_OPENRC" = true ] && [ "$HAS_ROOT" = true ]; then
+        rc-service sing-box stop 2>/dev/null
     else
         stop_process "singbox"
     fi
