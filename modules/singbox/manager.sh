@@ -319,34 +319,75 @@ download_singbox() {
     
     echo -e "${Info} 检测到系统: ${os_type}-${arch_type}"
     
-    local download_url="${SINGBOX_REPO}/releases/download/v${target_version}/sing-box-${target_version}-${os_type}-${arch_type}.tar.gz"
+    local filename="sing-box-${target_version}-${os_type}-${arch_type}.tar.gz"
+    local download_url="${SINGBOX_REPO}/releases/download/v${target_version}/${filename}"
     
     cd "$SINGBOX_DIR" || { echo -e "${Error} 无法进入目录"; return 1; }
     
     # 备份旧版本
     [ -f "$SINGBOX_BIN" ] && mv "$SINGBOX_BIN" "${SINGBOX_BIN}.bak"
     
-    # 下载并解压
-    echo -e "${Info} 下载地址: $download_url"
-    if ! curl -sL "$download_url" -o sing-box.tar.gz; then
-        echo -e "${Error} 下载失败"
-        [ -f "${SINGBOX_BIN}.bak" ] && mv "${SINGBOX_BIN}.bak" "$SINGBOX_BIN"
-        return 1
-    fi
+    # 尝试多个下载源
+    local download_success=false
+    local mirrors=(
+        "$download_url"
+        "https://ghproxy.com/${download_url}"
+        "https://mirror.ghproxy.com/${download_url}"
+    )
     
-    # 检查文件是否有效
-    if ! file sing-box.tar.gz 2>/dev/null | grep -q "gzip"; then
-        echo -e "${Error} 下载的文件不是有效的 gzip 文件"
-        rm -f sing-box.tar.gz
+    for mirror in "${mirrors[@]}"; do
+        echo -e "${Info} 尝试下载: $mirror"
+        
+        # 使用更详细的 curl 参数
+        if curl -L --progress-bar --connect-timeout 10 --max-time 300 \
+            -o sing-box.tar.gz "$mirror" 2>&1 | grep -v "^$"; then
+            
+            # 检查文件大小（至少应该大于 1MB）
+            local filesize=$(stat -f%z sing-box.tar.gz 2>/dev/null || stat -c%s sing-box.tar.gz 2>/dev/null || echo 0)
+            if [ "$filesize" -lt 1048576 ]; then
+                echo -e "${Warning} 下载的文件过小 (${filesize} bytes)，可能不是有效文件"
+                rm -f sing-box.tar.gz
+                continue
+            fi
+            
+            # 检查是否为有效的 gzip 文件
+            if file sing-box.tar.gz 2>/dev/null | grep -qi "gzip\|compressed"; then
+                download_success=true
+                echo -e "${Info} 下载成功 (${filesize} bytes)"
+                break
+            else
+                echo -e "${Warning} 文件格式不正确"
+                # 显示文件前几个字节帮助调试
+                echo -e "${Info} 文件头: $(head -c 50 sing-box.tar.gz 2>/dev/null | od -An -tx1 | head -1)"
+                rm -f sing-box.tar.gz
+            fi
+        fi
+        
+        echo -e "${Warning} 此镜像下载失败，尝试下一个..."
+        sleep 1
+    done
+    
+    if [ "$download_success" = false ]; then
+        echo -e "${Error} 所有下载源均失败"
+        echo -e "${Tip} 请检查网络连接或稍后重试"
+        echo -e "${Tip} 也可以手动下载 ${filename} 到 ${SINGBOX_DIR}/ 后重试"
         [ -f "${SINGBOX_BIN}.bak" ] && mv "${SINGBOX_BIN}.bak" "$SINGBOX_BIN"
         return 1
     fi
     
     # 解压 (FreeBSD 兼容)
+    echo -e "${Info} 解压文件..."
     if command -v gtar >/dev/null 2>&1; then
-        gtar -xzf sing-box.tar.gz --strip-components=1
+        gtar -xzf sing-box.tar.gz --strip-components=1 2>/dev/null
     else
-        tar -xzf sing-box.tar.gz --strip-components=1
+        tar -xzf sing-box.tar.gz --strip-components=1 2>/dev/null
+    fi
+    
+    if [ $? -ne 0 ]; then
+        echo -e "${Error} 解压失败"
+        rm -f sing-box.tar.gz
+        [ -f "${SINGBOX_BIN}.bak" ] && mv "${SINGBOX_BIN}.bak" "$SINGBOX_BIN"
+        return 1
     fi
     
     rm -f sing-box.tar.gz
@@ -355,8 +396,9 @@ download_singbox() {
     if [ -f "$SINGBOX_BIN" ] && [ -x "$SINGBOX_BIN" ]; then
         echo -e "${Info} sing-box 下载完成"
         $SINGBOX_BIN version
+        rm -f "${SINGBOX_BIN}.bak"
     else
-        echo -e "${Error} 下载失败，还原旧版本..."
+        echo -e "${Error} 安装失败，还原旧版本..."
         [ -f "${SINGBOX_BIN}.bak" ] && mv "${SINGBOX_BIN}.bak" "$SINGBOX_BIN"
         return 1
     fi
