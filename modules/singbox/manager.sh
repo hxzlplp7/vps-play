@@ -1034,23 +1034,336 @@ status_singbox() {
 
 # ==================== 节点信息 ====================
 show_node_info() {
-    if [ -f "$SINGBOX_DIR/node_info.txt" ]; then
+    while true; do
+        clear
         echo -e ""
         echo -e "${Green}==================== 节点信息 ====================${Reset}"
-        cat "$SINGBOX_DIR/node_info.txt"
+        
+        if [ -f "$SINGBOX_DIR/node_info.txt" ]; then
+            cat "$SINGBOX_DIR/node_info.txt"
+        else
+            echo -e "${Warning} 未找到节点配置"
+        fi
+        
         echo -e "${Green}=================================================${Reset}"
         
         # 显示分享链接
-        for link_file in "$SINGBOX_DIR"/*_link.txt; do
+        echo -e ""
+        echo -e "${Cyan}==================== 分享链接 ====================${Reset}"
+        local has_links=false
+        for link_file in "$SINGBOX_DIR"/*_link.txt "$SINGBOX_DIR"/combo_links.txt; do
             if [ -f "$link_file" ]; then
-                echo -e ""
-                echo -e "${Info} 分享链接:"
+                has_links=true
                 echo -e "${Yellow}$(cat "$link_file")${Reset}"
+                echo -e ""
             fi
         done
-    else
-        echo -e "${Warning} 未找到节点配置"
+        
+        if [ "$has_links" = false ]; then
+            echo -e "${Warning} 未找到分享链接"
+        fi
+        
+        echo -e "${Cyan}=================================================${Reset}"
+        
+        # 操作菜单
+        echo -e ""
+        echo -e "${Info} 节点管理选项:"
+        echo -e " ${Green}1.${Reset} 添加新节点 (保留现有节点)"
+        echo -e " ${Green}2.${Reset} 重装现有节点 (重新生成配置)"
+        echo -e " ${Green}3.${Reset} 修改节点参数"
+        echo -e " ${Green}4.${Reset} 复制分享链接"
+        echo -e " ${Green}0.${Reset} 返回"
+        echo -e ""
+        
+        read -p " 请选择 [0-4]: " node_choice
+        
+        case "$node_choice" in
+            1) add_node_to_existing ;;
+            2) reinstall_existing_node ;;
+            3) modify_node_params ;;
+            4) copy_share_links ;;
+            0) return 0 ;;
+            *) echo -e "${Error} 无效选择" ;;
+        esac
+        
+        read -p "按回车继续..."
+    done
+}
+
+# 添加新节点到现有配置
+add_node_to_existing() {
+    echo -e ""
+    echo -e "${Cyan}========== 添加新节点 ==========${Reset}"
+    echo -e "${Tip} 在当前运行的节点基础上添加新节点"
+    echo -e ""
+    echo -e " ${Green}1.${Reset} Hysteria2"
+    echo -e " ${Green}2.${Reset} TUIC v5"
+    echo -e " ${Green}3.${Reset} VLESS Reality"
+    echo -e " ${Green}4.${Reset} AnyTLS"
+    echo -e " ${Green}5.${Reset} Any-Reality"
+    echo -e " ${Green}0.${Reset} 取消"
+    echo -e ""
+    
+    read -p " 请选择要添加的协议 [0-5]: " add_choice
+    
+    case "$add_choice" in
+        1) add_protocol_hy2 ;;
+        2) add_protocol_tuic ;;
+        3) add_protocol_vless ;;
+        4) add_protocol_anytls ;;
+        5) add_protocol_any_reality ;;
+        0) return 0 ;;
+        *) echo -e "${Error} 无效选择" ;;
+    esac
+}
+
+# 添加 Hysteria2 协议到现有配置
+add_protocol_hy2() {
+    echo -e "${Info} 添加 Hysteria2 节点..."
+    
+    # 检查证书
+    if [ ! -f "$CERT_DIR/cert.crt" ]; then
+        echo -e "${Info} 需要配置 TLS 证书"
+        cert_menu
     fi
+    
+    local port=$(config_port "Hysteria2")
+    read -p "设置密码 [留空随机]: " password
+    [ -z "$password" ] && password=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
+    
+    # 读取现有配置并添加新 inbound
+    if [ -f "$SINGBOX_CONF" ]; then
+        local server_ip=$(get_ip)
+        local new_inbound="{\"type\":\"hysteria2\",\"tag\":\"hy2-add\",\"listen\":\"::\",\"listen_port\":${port},\"users\":[{\"password\":\"${password}\"}],\"tls\":{\"enabled\":true,\"alpn\":[\"h3\"],\"certificate_path\":\"${CERT_DIR}/cert.crt\",\"key_path\":\"${CERT_DIR}/private.key\"}}"
+        
+        # 使用 Python 或 jq 添加 inbound
+        if command -v python3 &>/dev/null; then
+            python3 -c "
+import json
+with open('$SINGBOX_CONF', 'r') as f:
+    config = json.load(f)
+config['inbounds'].append($new_inbound)
+with open('$SINGBOX_CONF', 'w') as f:
+    json.dump(config, f, indent=2)
+" 2>/dev/null
+        else
+            echo -e "${Warning} 需要 python3 来修改配置"
+            return 1
+        fi
+        
+        # 生成链接
+        local hy2_link="hysteria2://${password}@${server_ip}:${port}?sni=${CERT_DOMAIN:-www.bing.com}&insecure=1#Hy2-Add-${server_ip}"
+        echo "$hy2_link" >> "$SINGBOX_DIR/combo_links.txt"
+        
+        # 更新节点信息
+        echo -e "\n[Hysteria2-Added]\n端口: ${port}\n密码: ${password}" >> "$SINGBOX_DIR/node_info.txt"
+        
+        echo -e "${Info} Hysteria2 节点已添加"
+        echo -e "${Yellow}${hy2_link}${Reset}"
+        
+        # 重启服务
+        restart_singbox
+    else
+        echo -e "${Error} 配置文件不存在"
+    fi
+}
+
+# 添加 AnyTLS 协议到现有配置
+add_protocol_anytls() {
+    echo -e "${Info} 添加 AnyTLS 节点..."
+    
+    # 版本检查
+    if ! version_ge "$(get_version)" "1.12.0"; then
+        echo -e "${Info} AnyTLS 需要升级 sing-box 到 1.12.0+"
+        download_singbox "1.12.0"
+    fi
+    
+    local port=$(config_port "AnyTLS")
+    read -p "设置密码 [留空随机]: " password
+    [ -z "$password" ] && password=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
+    
+    local cert_domain="bing.com"
+    local internal_port=$(shuf -i 20000-60000 -n 1)
+    
+    # 生成自签证书
+    if [ ! -f "$CERT_DIR/anytls.key" ]; then
+        openssl req -x509 -newkey ec:<(openssl ecparam -name prime256v1) \
+            -keyout "$CERT_DIR/anytls.key" -out "$CERT_DIR/anytls.crt" \
+            -days 36500 -nodes -subj "/CN=$cert_domain" 2>/dev/null
+    fi
+    
+    if [ -f "$SINGBOX_CONF" ]; then
+        local server_ip=$(get_ip)
+        local hostname=$(hostname)
+        
+        # 使用 Python 添加 inbound
+        if command -v python3 &>/dev/null; then
+            python3 -c "
+import json
+with open('$SINGBOX_CONF', 'r') as f:
+    config = json.load(f)
+config['inbounds'].append({
+    'type': 'anytls',
+    'tag': 'anytls-add',
+    'listen': '::',
+    'listen_port': $port,
+    'users': [{'password': '$password'}],
+    'tls': {
+        'enabled': True,
+        'certificate_path': '$CERT_DIR/anytls.crt',
+        'key_path': '$CERT_DIR/anytls.key'
+    },
+    'detour': 'mixed-add'
+})
+config['inbounds'].append({
+    'type': 'mixed',
+    'tag': 'mixed-add',
+    'listen': '127.0.0.1',
+    'listen_port': $internal_port
+})
+with open('$SINGBOX_CONF', 'w') as f:
+    json.dump(config, f, indent=2)
+" 2>/dev/null
+        else
+            echo -e "${Warning} 需要 python3 来修改配置"
+            return 1
+        fi
+        
+        # 生成链接
+        local anytls_link="anytls://${password}@${server_ip}:${port}?insecure=1&sni=${cert_domain}&fp=chrome&alpn=h2,http/1.1&udp=1#anytls-add-${hostname}"
+        echo "$anytls_link" >> "$SINGBOX_DIR/combo_links.txt"
+        
+        # 更新节点信息
+        echo -e "\n[AnyTLS-Added]\n端口: ${port}\n密码: ${password}\nSNI: ${cert_domain}" >> "$SINGBOX_DIR/node_info.txt"
+        
+        echo -e "${Info} AnyTLS 节点已添加"
+        echo -e "${Yellow}${anytls_link}${Reset}"
+        
+        restart_singbox
+    else
+        echo -e "${Error} 配置文件不存在"
+    fi
+}
+
+# 添加其他协议的占位函数
+add_protocol_tuic() {
+    echo -e "${Warning} TUIC 添加功能开发中..."
+}
+
+add_protocol_vless() {
+    echo -e "${Warning} VLESS 添加功能开发中..."
+}
+
+add_protocol_any_reality() {
+    echo -e "${Warning} Any-Reality 添加功能开发中..."
+}
+
+# 重装现有节点
+reinstall_existing_node() {
+    echo -e ""
+    echo -e "${Warning} 重装将覆盖现有配置，是否继续? [y/N]"
+    read -p "" confirm
+    [[ ! $confirm =~ ^[Yy]$ ]] && return 0
+    
+    # 读取当前配置，检测协议类型
+    if [ -f "$SINGBOX_CONF" ]; then
+        local protocols=$(grep -o '"type": *"[^"]*"' "$SINGBOX_CONF" | grep -v direct | cut -d'"' -f4 | sort -u)
+        echo -e "${Info} 检测到以下协议: $protocols"
+        echo -e ""
+        echo -e " ${Green}1.${Reset} 重装相同协议配置"
+        echo -e " ${Green}2.${Reset} 选择新协议重装"
+        echo -e " ${Green}0.${Reset} 取消"
+        
+        read -p " 请选择: " reinstall_choice
+        
+        case "$reinstall_choice" in
+            1)
+                # 停止服务，删除配置，重新运行相同协议
+                stop_singbox
+                rm -f "$SINGBOX_CONF" "$SINGBOX_DIR/node_info.txt" "$SINGBOX_DIR"/*_link.txt
+                
+                for proto in $protocols; do
+                    case "$proto" in
+                        hysteria2) install_hysteria2 ;;
+                        tuic) install_tuic ;;
+                        vless) install_vless_reality ;;
+                        anytls) install_anytls ;;
+                    esac
+                done
+                ;;
+            2)
+                install_combo
+                ;;
+            0) return 0 ;;
+        esac
+    else
+        echo -e "${Warning} 当前没有配置，请先安装节点"
+    fi
+}
+
+# 修改节点参数
+modify_node_params() {
+    echo -e ""
+    echo -e "${Cyan}========== 修改节点参数 ==========${Reset}"
+    
+    if [ ! -f "$SINGBOX_CONF" ]; then
+        echo -e "${Warning} 配置文件不存在"
+        return 1
+    fi
+    
+    echo -e " ${Green}1.${Reset} 修改端口"
+    echo -e " ${Green}2.${Reset} 修改密码"
+    echo -e " ${Green}3.${Reset} 修改 SNI"
+    echo -e " ${Green}0.${Reset} 取消"
+    
+    read -p " 请选择: " modify_choice
+    
+    case "$modify_choice" in
+        1)
+            read -p "新端口: " new_port
+            if [ -n "$new_port" ]; then
+                # 使用 sed 替换端口 (简化版)
+                sed -i "s/\"listen_port\": *[0-9]*/\"listen_port\": $new_port/" "$SINGBOX_CONF"
+                echo -e "${Info} 端口已修改为 $new_port"
+                restart_singbox
+            fi
+            ;;
+        2)
+            read -p "新密码: " new_password
+            if [ -n "$new_password" ]; then
+                sed -i "s/\"password\": *\"[^\"]*\"/\"password\": \"$new_password\"/" "$SINGBOX_CONF"
+                echo -e "${Info} 密码已修改"
+                restart_singbox
+            fi
+            ;;
+        3)
+            read -p "新 SNI: " new_sni
+            if [ -n "$new_sni" ]; then
+                sed -i "s/\"server_name\": *\"[^\"]*\"/\"server_name\": \"$new_sni\"/" "$SINGBOX_CONF"
+                echo -e "${Info} SNI 已修改为 $new_sni"
+                restart_singbox
+            fi
+            ;;
+        0) return 0 ;;
+    esac
+    
+    echo -e "${Warning} 修改后请重新生成分享链接"
+}
+
+# 复制分享链接
+copy_share_links() {
+    echo -e ""
+    echo -e "${Cyan}========== 所有分享链接 ==========${Reset}"
+    
+    for link_file in "$SINGBOX_DIR"/*_link.txt "$SINGBOX_DIR"/combo_links.txt; do
+        if [ -f "$link_file" ]; then
+            echo -e ""
+            echo -e "${Yellow}$(cat "$link_file")${Reset}"
+        fi
+    done
+    
+    echo -e ""
+    echo -e "${Tip} 请手动复制以上链接"
 }
 
 view_config() {
